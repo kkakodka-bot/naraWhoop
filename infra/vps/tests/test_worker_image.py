@@ -15,13 +15,13 @@ SPEC.loader.exec_module(MODULE)
 SHA = 'a' * 40
 
 
-def fixture(directory, *, oci=True, manifest_id=True, role='physiology'):
+def fixture(directory, *, oci=True, manifest_id=True, role='physiology', intake_contract='2'):
     labels = {'org.opencontainers.image.revision': SHA, 'io.frwhoop.image.platform': 'linux/amd64',
               'io.frwhoop.database.ca.sha256': '700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7',
               'io.frwhoop.heartbeat.contract': 'physiology_worker_heartbeats-v1',
               'io.frwhoop.algorithm.roles': 'frwhoop-physiology-2,frwhoop-server-2-history',
               'io.frwhoop.algorithm.version': 'frwhoop-server-1',
-              'org.frwhoop.worker.role': 'intake', 'org.frwhoop.intake.contract-version': '1'}
+              'org.frwhoop.worker.role': 'intake', 'org.frwhoop.intake.contract-version': intake_contract}
     config_bytes = encoded({'architecture': 'amd64', 'os': 'linux', 'config': {'Labels': labels}})
     config_digest = digest(config_bytes)
     manifest_bytes = encoded({'schemaVersion': 2, 'config': {'digest': config_digest,
@@ -56,6 +56,12 @@ class WorkerImageTest(unittest.TestCase):
                         receipt = MODULE.verify_worker_archive(*args)
                         self.assertEqual(receipt['engineImageId'], args[1][0]['Id'])
                         self.assertEqual(receipt['configDigest'], args[3])
+
+    def test_old_intake_contract_is_rejected_even_when_archive_digests_match(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args=fixture(directory,role='intake',intake_contract='1')
+            with self.assertRaisesRegex(ValueError,'intake role or contract'):
+                MODULE.verify_worker_archive(*args)
 
     def test_manifest_id_is_not_a_substitute_for_reviewed_config_bytes(self):
         with tempfile.TemporaryDirectory() as directory:

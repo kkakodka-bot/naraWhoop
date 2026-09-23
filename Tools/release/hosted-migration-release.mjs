@@ -10,8 +10,8 @@ import { canonicalJSON, sha256Hex } from './generate-migration-manifest.mjs';
 
 export const HOSTED_PROJECT_REF = 'sgoyxzcagqyxexmsidtk';
 export const CREDENTIAL_ENVIRONMENT = 'FRWHOOP_HOSTED_DATABASE_URL';
-export const EXPECTED_SCHEMA_FINGERPRINT = 'e71489e9317a7a47c1f4c591ca8c26187bf726149e4c456246098673c4d66b24';
-export const EXPECTED_DATABASE_SCHEMA_FINGERPRINT = '8c0f6b62fadc0d42fafab8b7ff0140b75198fddbbc728b8b5f2e62ded0e69663';
+export const EXPECTED_SCHEMA_FINGERPRINT = 'f5d9f630389b1236efbe8494878faecb0fe8e9e17f5d25b47723759d9c58d92d';
+export const EXPECTED_DATABASE_SCHEMA_FINGERPRINT = 'b8e62f83ddb071099869cf1e194a6ef5bf9bf857bca06f6b6624c250be20f90b';
 export const PSQL_CONNECT_TIMEOUT_SECONDS = 10;
 export const PSQL_QUERY_TIMEOUT_MILLISECONDS = 10 * 60 * 1000;
 export const LEDGER_STATEMENT_TIMEOUT_SECONDS = 30;
@@ -28,6 +28,7 @@ export const PENDING_IDENTITIES = Object.freeze([
   '20260922010000_object_copy_intents.sql',
   '20260922020000_async_object_verification.sql',
   '20260922120000_intake_service_contract.sql',
+  '20260922130000_scoped_intake_admission.sql',
 ]);
 
 const MANIFEST_KIND = 'frwhoop-immutable-migration-manifest';
@@ -39,7 +40,7 @@ const VERIFY_RELATIVE_PATH = 'Tools/release/verify-integrated-schema.sql';
 const MIGRATION_DIRECTORY = 'supabase/migrations';
 const CATALOG_RELATIVE_PATH = 'scoring-service/service/src/main/resources/scoring-migration-catalog.json';
 const BASELINE_COUNT = 117;
-const TOTAL_COUNT = 127;
+const TOTAL_COUNT = 128;
 const GIT_EXECUTABLE = '/usr/bin/git';
 const DATABASE_CLIENT_KIND = 'frwhoop-hosted-database-client';
 
@@ -816,7 +817,7 @@ function validatePostverify(raw) {
     'integrated database schema fingerprint differs from the disposable-database release fingerprint');
   invariant(result.compute_families === 27 && result.compute_metrics === 80,
     'integrated compute ownership registry differs');
-  invariant(result.selected_functions === 18 && result.selected_triggers === 11 &&
+  invariant(result.selected_functions === 30 && result.selected_triggers === 11 &&
     result.selected_policies === 24,
   'integrated function, trigger, queue, grant, or RLS verification counts differ');
   return result;

@@ -1,15 +1,18 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "decision": "AWAITING_EXPLICIT_DEPLOYMENT_APPROVAL",
   "evidenceScope": "LOCAL_FIXTURES_AND_READ_ONLY_TARGET_SNAPSHOT",
   "targetVpsCapacity": "NOT_MEASURED",
   "fleetCapacityReadiness": "FAIL",
   "currentAdmission": {
-    "queueScope": "ALL_ELIGIBLE_OWNERS_IN_SELECTED_QUEUES",
-    "ownerAllowlist": false,
+    "queueScope": "EXPLICIT_ONE_OWNER_DEVICE_CANARY",
+    "ownerAllowlist": true,
+    "maxAdmittedOwners": 1,
+    "maxAdmittedDevices": 1,
+    "scopeIdentity": "BOUND_PRIVATE_DEPLOYMENT_PLAN",
     "safeActiveOwners": null,
     "safeDevices": null,
-    "eligibleBacklog": "REQUIRES_FRESH_PREDEPLOYMENT_COUNT"
+    "eligibleBacklog": "REQUIRES_FRESH_SCOPED_PREDEPLOYMENT_COUNT"
   },
   "publicationSlo": {
     "percentile": 95,
@@ -20,11 +23,24 @@
   "proposedInitialTopology": {
     "status": "PROPOSED_NOT_APPROVED_OR_CAPACITY_TESTED",
     "services": [
-      { "service": "intake-consumer", "cpus": 1, "memoryBytes": 2147483648 },
-      { "service": "scoring-baseline-v1", "cpus": 1, "memoryBytes": 1073741824 }
+      {
+        "service": "intake-consumer",
+        "cpus": 1,
+        "memoryBytes": 2147483648
+      },
+      {
+        "service": "scoring-baseline-v1",
+        "cpus": 1,
+        "memoryBytes": 1073741824
+      }
     ],
-    "excludedServices": ["scoring-physiology-v2", "scoring-history", "optional-model-workers"],
-    "existingShadowQuiescence": "REQUIRES_EXPLICIT_APPROVAL"
+    "excludedServices": [
+      "scoring-physiology-v2",
+      "scoring-history",
+      "optional-model-workers"
+    ],
+    "existingShadowQuiescence": "REQUIRES_EXPLICIT_APPROVAL",
+    "admissionMode": "canary"
   },
   "databaseConnections": {
     "status": "TARGET_BUDGET_NOT_MEASURED",

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   ANDROID_INSPECTION_TOOLS,
+  admissionEnvironment, atomicWrite, readPrivateJSON, validateAdmission,
   canonicalJSON,
   createWorkerDeployment as createWorkerDeploymentActual,
   compileIntakeCompose,
@@ -90,7 +91,7 @@ function ociFixture(role, mutateConfig = () => {}) {
   if (role === 'intake') {
     configValue.config.Labels = {
       'org.opencontainers.image.revision': REVISION, 'org.frwhoop.worker.role': 'intake',
-      'org.frwhoop.intake.contract-version': '1', 'io.frwhoop.runtime.image': INTAKE_RUNTIME_IMAGE,
+      'org.frwhoop.intake.contract-version': '2', 'io.frwhoop.runtime.image': INTAKE_RUNTIME_IMAGE,
       'io.frwhoop.image.platform': 'linux/amd64',
     };
     Object.assign(configValue.config, { User: 'deno', WorkingDir: '/app',
@@ -175,7 +176,7 @@ test('intake OCI rejects coherently rebuilt incompatible role, contract and runt
   const filename = path.join(directory, 'image.tar');
   for (const mutate of [
     value => { value.config.Labels['org.frwhoop.worker.role'] = 'shadow-v2'; },
-    value => { value.config.Labels['org.frwhoop.intake.contract-version'] = '2'; },
+    value => { value.config.Labels['org.frwhoop.intake.contract-version'] = '1'; },
     value => { value.config.Labels['io.frwhoop.runtime.image'] = 'denoland/deno:latest'; },
     value => { value.config.User = 'root'; },
     value => { value.config.WorkingDir = '/tmp'; },
@@ -230,7 +231,19 @@ test('actual Compose compilation binds committed template with isolated nonsecre
   const commit = git('rev-parse', 'HEAD');
   fs.writeFileSync(filename, 'dirty worktree is deliberately ignored\n');
   assert.deepEqual(compileIntakeCompose({ repoRoot: directory, commit, ...intake }),
-    intakeComposeContract(intake.reference, commit, intake.instanceId, intake.projectRef));
+    intakeComposeContract(intake.reference, commit, intake.instanceId, intake.projectRef, intake.admission));
+  const privateConfig = path.join(directory, 'admission.json');
+  const privateOutput = path.join(directory, 'compiled-private.json');
+  atomicWrite(privateConfig, CANARY, 0o600);
+  const cli = spawnSync(process.execPath, [fileURLToPath(new URL('./release-artifact-manifest.mjs', import.meta.url)),
+    'compile-intake', '--repo-root', directory, '--commit', commit, '--intake-image', intake.reference,
+    '--intake-instance-id', intake.instanceId, '--intake-project-ref', intake.projectRef,
+    '--admission-config', privateConfig, '--output', privateOutput], {encoding:'utf8'});
+  assert.equal(cli.status, 0, cli.stderr);
+  assert.equal(fs.statSync(privateOutput).mode & 0o777, 0o600);
+  assert.deepEqual(readPrivateJSON(privateOutput),
+    intakeComposeContract(intake.reference, commit, intake.instanceId, intake.projectRef, CANARY));
+  for (const value of [CANARY.ownerId, CANARY.deviceId]) assert.ok(!(cli.stdout + cli.stderr).includes(value));
   fs.writeFileSync(filename, template.replace('command: []', 'command: [--once]'));
   git('add', relative); git('commit', '--quiet', '-m', 'incompatible command');
   assert.throws(() => compileIntakeCompose({ repoRoot: directory, commit: git('rev-parse', 'HEAD'), ...intake }),
@@ -347,14 +360,14 @@ test('iOS expected identities retain the committed phone/widget/watch/App Group 
   }
 });
 
-test('aggregate source contract separates historical fixture capacity from unmeasured current global queues', () => {
+test('aggregate source contract separates historical fixture capacity from unmeasured explicit canary limits', () => {
   const capacity = JSON.parse(fs.readFileSync(new URL('../../infra/vps/launch-capacity.json', import.meta.url)));
   assert.equal(validateLaunchCapacity(capacity), capacity);
   for (const mutate of [
     value => { value.targetVpsCapacity = 'PASS'; },
     value => { value.fleetCapacityReadiness = 'PASS'; },
     value => { value.currentAdmission.safeActiveOwners = 10; },
-    value => { value.currentAdmission.ownerAllowlist = true; },
+    value => { value.currentAdmission.ownerAllowlist = false; },
     value => { value.publicationSlo.seconds = 60; },
     value => { value.proposedInitialTopology.status = 'APPROVED'; },
     value => { value.proposedInitialTopology.services[1].memoryBytes *= 2; },
@@ -380,7 +393,12 @@ function releaseForDeployment() {
   return {
     schemaVersion: 1,
     kind: 'frwhoop-phone-test-artifact-manifest',
-    source: { commit: REVISION, tree: 'b'.repeat(40) },
+    source: { commit: REVISION, tree: 'b'.repeat(40), contractFiles: [
+      'infra/vps/scoped-canary-stop-policy.json', 'infra/vps/scripts/scoped-canary-guard.py',
+      'infra/vps/templates/frwhoop-scoped-canary.service', 'infra/vps/scripts/scoring-admission.py',
+      'infra/vps/scripts/verify-worker-image.py', 'infra/vps/scripts/verify-pinned-postgres-client.py',
+    ].map(filename => ({path:filename, sha256:sha256(fs.readFileSync(new URL('../../'+filename, import.meta.url))),
+      sizeBytes:fs.statSync(new URL('../../'+filename,import.meta.url)).size})) },
     manifestFingerprintSha256: 'c'.repeat(64),
     runtimeClients: { postgresql: structuredClone(POSTGRES_CLIENT) },
     roles: {
@@ -388,7 +406,7 @@ function releaseForDeployment() {
         publicationRole: 'selected', heartbeat },
       shadowV2: { imageArtifact: 'shadowV2', algorithmVersion: 'frwhoop-physiology-2',
         publicationRole: 'shadow', heartbeat },
-      intake: { imageArtifact: 'intake', contractVersion: 1, sourceRevision: REVISION,
+      intake: { imageArtifact: 'intake', contractVersion: 2, sourceRevision: REVISION,
         publicationRole: 'verified-indexed-input', lanes: ['verification', 'projection', 'legacy'],
         asyncAdmission: 'DISABLED_UNTIL_SEPARATELY_AUTHORIZED', progressTable: 'noop_intake_consumers' },
       historyV2: { imageArtifact: 'shadowV2', algorithmVersion: 'frwhoop-server-2-history',
@@ -405,14 +423,16 @@ function releaseForDeployment() {
   };
 }
 
-function intakeForDeployment(release) {
+const CANARY = { mode: 'canary', ownerId: '11111111-1111-4111-8111-111111111112',
+  deviceId: '11111111-1111-4111-8111-111111111113' };
+function intakeForDeployment(release, admission = { mode: 'all-eligible' }) {
   const reference = `registry.invalid/frwhoop-intake@${release.artifacts.intake.image.manifestDigest}`;
   const instanceId = '11111111-1111-4111-8111-111111111111', projectRef = 'sgoyxzcagqyxexmsidtk';
-  return { reference, instanceId, projectRef,
-    compiledCompose: intakeComposeContract(reference, release.source.commit, instanceId, projectRef) };
+  return { reference, instanceId, projectRef, admission,
+    compiledCompose: intakeComposeContract(reference, release.source.commit, instanceId, projectRef, admission) };
 }
 function createWorkerDeployment(release, v1, v2, target, intake = intakeForDeployment(release)) {
-  return createWorkerDeploymentActual(release, v1, v2, target, intake);
+  return createWorkerDeploymentActual(release, v1, v2, target, intake, 'full-fleet', { mode: 'all-eligible' });
 }
 
 function targetForDeployment() {
@@ -477,7 +497,7 @@ test('worker deployment rejects mutable refs, role swaps and all identity mutati
     value => { value.source.commit = 'd'.repeat(40); },
     value => { value.releaseManifestFingerprintSha256 = 'd'.repeat(64); },
     value => { value.images.intake.configDigest = 'sha256:' + 'd'.repeat(64); },
-    value => { value.intake.contractVersion = 2; },
+    value => { value.intake.contractVersion = 1; },
     value => { value.intake.asyncAdmission = 'ENABLED'; },
     value => { value.intake.compiledCompose.services['intake-consumer'].command = ['--once']; },
     value => { value.intake.compiledComposeSha256 = 'e'.repeat(64); },
@@ -501,17 +521,17 @@ test('initial deployment scope binds intake and selected v1 without shadow or hi
   const v1 = `registry.invalid/frwhoop-v1@${release.artifacts.selectedV1.image.manifestDigest}`;
   const v2 = `registry.invalid/frwhoop-v2@${release.artifacts.shadowV2.image.manifestDigest}`;
   const initial = createWorkerDeploymentActual(release, v1, v2, targetForDeployment(),
-    intakeForDeployment(release), 'initial-selected-v1');
+    intakeForDeployment(release, CANARY), 'initial-selected-v1', CANARY);
   assert.equal(verifyWorkerDeploymentContract(release, initial), initial);
   assert.deepEqual(initial.laneOrder.map(lane => lane.service), ['intake-consumer', 'scoring-baseline-v1']);
   const expanded = structuredClone(initial);
   expanded.scope = 'full-fleet';
   assert.throws(() => verifyWorkerDeploymentContract(release, expanded), /NOT_READY/);
   assert.throws(() => createWorkerDeploymentActual(release, v1, v2, targetForDeployment(),
-    intakeForDeployment(release), 'one-owner'), /scope differs/);
+    intakeForDeployment(release), 'one-owner', { mode: 'all-eligible' }), /scope differs/);
 });
 
-test('migration binding rejects coherently reauthored catalogs and binds all 127 committed source files', () => {
+test('migration binding rejects coherently reauthored catalogs and binds all 128 committed source files', () => {
   const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
   const git = (...args) => {
     const result = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
@@ -549,7 +569,7 @@ test('migration binding rejects coherently reauthored catalogs and binds all 127
   assert.deepEqual(validateMigrationManifest(manifest, repo, commit, tree), {
     schemaFingerprintSha256: manifest.schemaFingerprintSha256,
     manifestFingerprintSha256: manifest.manifestFingerprintSha256,
-    total: 127, applied: 117, pending: 10,
+    total: 128, applied: 117, pending: 11,
   });
   const rehash = value => {
     const { manifestFingerprintSha256: ignored, ...unsigned } = value;
@@ -598,4 +618,60 @@ test('aggregate verification regenerates deployment bundle metadata from exact c
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
+});
+
+
+test('one canonical private admission binds both consumers and cannot expand scope', () => {
+  const release = releaseForDeployment();
+  const v1 = `registry.invalid/frwhoop-v1@${release.artifacts.selectedV1.image.manifestDigest}`;
+  const v2 = `registry.invalid/frwhoop-v2@${release.artifacts.shadowV2.image.manifestDigest}`;
+  const plan = createWorkerDeploymentActual(release, v1, v2, targetForDeployment(),
+    intakeForDeployment(release, CANARY), 'initial-selected-v1', CANARY);
+  assert.deepEqual(plan.baselineEnvironment, admissionEnvironment(CANARY, 'SCORING'));
+  const env = plan.intake.compiledCompose.services['intake-consumer'].environment;
+  assert.equal(env.INTAKE_CANARY_OWNER_ID, plan.baselineEnvironment.SCORING_CANARY_OWNER_ID);
+  assert.equal(env.INTAKE_CANARY_DEVICE_ID, plan.baselineEnvironment.SCORING_CANARY_DEVICE_ID);
+  assert.equal(plan.admissionSha256, sha256(canonicalJSON(CANARY)));
+  assert.equal(plan.canaryGuard.dependencies.length,3);
+  assert.equal(plan.intake.compiledCompose.services['intake-consumer'].restart,'no');
+  const unbound = structuredClone(release); unbound.source.contractFiles=[];
+  assert.throws(() => createWorkerDeploymentActual(unbound,v1,v2,targetForDeployment(),
+    intakeForDeployment(unbound,CANARY),'initial-selected-v1',CANARY), /guard source binding missing/);
+  for (const mutate of [
+    p => { p.admission.deviceId = '11111111-1111-4111-8111-111111111114'; },
+    p => { p.baselineEnvironment.SCORING_CANARY_OWNER_ID = p.admission.deviceId; },
+    p => { p.intake.compiledCompose.services['intake-consumer'].environment.INTAKE_ADMISSION_MODE = 'all-eligible'; },
+    p => { p.admissionSha256 = '0'.repeat(64); },
+    p => { p.canaryGuard.policy.sha256 = '0'.repeat(64); },
+    p => { p.canaryGuard.dependencies.pop(); },
+    p => { p.canaryGuard.helper.sizeBytes += 1; },
+  ]) {
+    const changed = structuredClone(plan); mutate(changed);
+    assert.throws(() => verifyWorkerDeploymentContract(release, changed), /NOT_READY/);
+  }
+  assert.throws(() => createWorkerDeploymentActual(release, v1, v2, targetForDeployment(),
+    intakeForDeployment(release), 'initial-selected-v1', { mode: 'all-eligible' }), /initial deployment requires canary/);
+  assert.throws(() => createWorkerDeploymentActual(release, v1, v2, targetForDeployment(),
+    intakeForDeployment(release, CANARY), 'full-fleet', CANARY), /initial deployment requires canary/);
+  for (const value of [undefined, {}, {mode:'canary'}, {...CANARY, deviceId:'1-1-1-1-1'},
+    {...CANARY, ownerId:'00000000-0000-0000-0000-000000000000'}, {...CANARY, mode:'all-eligible'},
+    {...CANARY, ownerId:[CANARY.ownerId]}, {...CANARY, deviceId:[CANARY.deviceId]},
+    {...CANARY, extra:true}]) assert.throws(() => validateAdmission(value), /NOT_READY/);
+});
+
+test('private scope files reject public modes and symlinks and atomic outputs stay private', t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'release-private-admission-'));
+  t.after(() => fs.rmSync(directory, {recursive:true, force:true}));
+  const filename = path.join(directory, 'admission.json');
+  atomicWrite(filename, CANARY, 0o600);
+  assert.equal(fs.statSync(filename).mode & 0o777, 0o600);
+  assert.deepEqual(validateAdmission(readPrivateJSON(filename)), CANARY);
+  const link = path.join(directory, 'link.json'); fs.symlinkSync(filename, link);
+  assert.throws(() => readPrivateJSON(link), /private deployment file is invalid/);
+  fs.chmodSync(filename, 0o644);
+  assert.throws(() => readPrivateJSON(filename), /private deployment file is invalid/);
+  atomicWrite(filename, CANARY, 0o600);
+  assert.equal(fs.statSync(filename).mode & 0o777, 0o600);
+  fs.writeFileSync(filename, '{bad private contents');
+  assert.throws(() => readPrivateJSON(filename), /private deployment file is invalid/);
 });

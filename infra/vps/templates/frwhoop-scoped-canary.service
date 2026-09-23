@@ -1,0 +1,19 @@
+[Unit]
+Description=Bound FRWHOOP canary workers and resource observer
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=simple
+User=root
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/frwhoop/canary/scoped-canary-guard.py run --execute --binding /opt/frwhoop/canary/binding.json --plan /opt/frwhoop/canary/deployment.json --policy /opt/frwhoop/canary/scoped-canary-stop-policy.json
+ExecStopPost=/usr/bin/python3 /opt/frwhoop/canary/scoped-canary-guard.py stop --execute --binding /opt/frwhoop/canary/binding.json --plan /opt/frwhoop/canary/deployment.json --policy /opt/frwhoop/canary/scoped-canary-stop-policy.json
+Restart=no
+KillMode=control-group
+TimeoutStopSec=120
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

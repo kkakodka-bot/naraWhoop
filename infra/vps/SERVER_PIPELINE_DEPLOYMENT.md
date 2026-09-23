@@ -1,7 +1,8 @@
 # Server pipeline deployment and rollback
 
-This is a review plan, not deployment approval. No production migration, worker replacement,
-model promotion, production-data read or registry push is part of this repair's local acceptance.
+This is a review plan, not deployment approval. It authorizes no production migration, worker
+replacement, model promotion or registry push. Read-only hosted receipts remain distinct from
+disposable local validation.
 See [the score contract](../../docs/server-pipeline-contract.md) and the root server handoff for
 the exact tested commit and outstanding acceptance evidence.
 
@@ -28,7 +29,10 @@ image and the shared physiology/history image. This repair does not publish eith
 ## Migration lineage: no timestamp truncation or blind replay
 
 The reviewed catalog is `scoring-service/service/src/main/resources/scoring-migration-catalog.json`
-at the repository root. Infra planning and JVM preflight share this same packaged catalog. Each identity is a complete SQL
+at the repository root: 128 complete identities, with 117 attested on the latest reviewed hosted
+baseline and 11 pending forward identities. The native hosted ledger has 110 timestamp rows;
+those rows do not replace the full identity/hash attestation. Refresh the actual read-only target
+plan before approval because these counts are evidence from a snapshot. Infra planning and JVM preflight share this same packaged catalog. Each identity is a complete SQL
 basename plus SHA-256, not just its first 14 digits. Six historical timestamp collisions are real
 independent files. No original migration is renamed, changed or inferred to have run because a
 different file shares its timestamp. `verifyMigrationSources` rejects missing, extra, symlinked or
@@ -38,13 +42,19 @@ Fresh install has one explicit dependency exception: the existing forward repair
 `20260921060000_production_intake_durability.sql` executes before
 `20260918040000_production_projection_debt.sql`. It provides intake fields required by projection
 debt. It executes once, under its original identity. An already applied repair is never replayed.
-The five new additive repairs are `20260921100000_server_score_read_contract.sql`,
+The five earlier additive repairs, already in the 117-identity hosted baseline, are `20260921100000_server_score_read_contract.sql`,
 `20260921101000_server_pipeline_diagnostics.sql`,
 `20260921102000_server_baseline_publication.sql`,
 `20260921103000_server_publication_conflict_transport.sql`, and
 `20260921104000_server_unrepresentable_clock.sql`. The transport repair maps stale publication
 leases to bounded HTTP 409 without changing private SQL lease/fence behavior. The clock repair
 retains raw input while excluding unrepresentable/nonfinite timestamps from day projection.
+The 11 pending identities are installation retirement, wearable lifecycle, fleet scheduler,
+fleet admission/retention, sensor acquisition windows, final hosted compute contract, compute
+session requests, PR22 object copy intents, PR22 async object verification, the continuous intake
+service contract, and scoped intake admission. The manifest binds every exact basename/hash and
+its reviewed order. Async admission stays off. The new scoped contract is additive; old durable
+debt and immutable results remain available.
 
 Before an authorized upgrade, export the actual target ledger read-only and compare its identities
 with reviewed prior deployment artifacts. The planner does not access a database or execute SQL:
@@ -104,6 +114,7 @@ confirm that all selected defaults remain v1. These tests do not establish the p
      --intake-instance-id REVIEWED_FRESH_INSTANCE_UUID \
      --intake-project-ref sgoyxzcagqyxexmsidtk \
      --scope initial-selected-v1 \
+     --admission-config /private/reviewed/canary-admission.json \
      --target-ip REVIEWED_LITERAL_IPV4 \
      --target-ssh-port REVIEWED_PORT \
      --target-ssh-host-key-line 'ssh-ed25519 REVIEWED_BASE64_HOST_PUBLIC_KEY' \
@@ -112,9 +123,19 @@ confirm that all selected defaults remain v1. These tests do not establish the p
      --output /reviewed/frwhoop-release/worker-deployment.json
    ```
 
+   Create the admission input as an owned regular mode-0600 JSON file. For this initial canary
+   its exact fields are `mode: "canary"`, `ownerId`, and `deviceId`, using the reviewed active
+   account/device pair. Keep the values private; neither UUID belongs in shell arguments or public
+   receipts. The binder requires this pair and binds it to both the intake Compose environment
+   and baseline environment. It writes the deployment plan and compiled Compose as mode 0600.
+   Public output reports only the admission mode and canonical SHA-256. A separately approved
+   `full-fleet` plan requires an explicit `{ "mode": "all-eligible" }` input; it cannot reuse the
+   canary plan or silently broaden a missing scope. One admitted pair is an operational limit,
+   not measured safe capacity.
+
    The repaired aggregate requires a third OCI artifact named `intake` with `oci` and
    `buildMetadata` paths in the release inputs. Its source SHA, config and manifest digests,
-   contract version 1, nonroot cached Deno command, and pinned Deno base are verified independently
+   contract version 2, nonroot cached Deno command, and pinned Deno base are verified independently
    from the scoring images. Build its curated context from the exact committed
    `workers/intake/main.ts`, `supabase/functions/_shared`, `supabase/functions/deno.lock`, and
    `infra/vps/templates/Dockerfile.intake`; do not archive local caches into its context.
@@ -124,16 +145,19 @@ confirm that all selected defaults remain v1. These tests do not establish the p
    JSON includes `intake.compiledCompose` and its canonical SHA-256; verification recompiles the
    source and rejects changes to the image, project, instance, source, command or resource limits.
    The bound runtime env files remain `/opt/frwhoop/intake.env` and `/opt/frwhoop/b2.env`.
-   Deploy the emitted `intake.compiledCompose` JSON, rather than resolving the raw template again
+   The staging command uses the emitted `intake.compiledCompose` JSON instead of resolving the raw template again
    with ambient environment overrides. The offline probes intentionally substitute template env-file
    paths; the compiled artifact is what fixes the credential paths and resource limits for deployment.
    `compile-intake --repo-root . --commit FULL_SHA --intake-image DIGEST_REF
-   --intake-instance-id UUID --intake-project-ref sgoyxzcagqyxexmsidtk --output compose.json`
+   --intake-instance-id UUID --intake-project-ref sgoyxzcagqyxexmsidtk
+   --admission-config /private/reviewed/canary-admission.json --output /private/reviewed/compose.json`
    renders the same configuration for review without deploying it.
 
-   Deploy the reviewed intake configuration after the matching migration and before the scorer
-   cutover, using separately explicit deployment authority. The scorer script below deploys only
-   the scoring lanes in its reviewed scope. Intake acceptance requires the bound image/config/source/instance and
+   The initial deployment command stages intake and baseline after the matching migration. It
+   exports the fingerprint-bound private Compose, refuses an existing unreviewed intake, verifies
+   the pulled image archive, and creates intake stopped. It then preserves the prior baseline and
+   creates the replacement stopped. Both use restart policy `no`; only the bound host guard may
+   start them. Intake acceptance still requires the bound image/config/source/instance and
    contract, continuously serviced verification and projection queues, and a real verified/indexed
    input that publishes a selected result. Poll metadata alone is insufficient. Keep optional async
    admission off until a compatible consumer is continuously serviced and enablement is separately
@@ -148,8 +172,8 @@ confirm that all selected defaults remain v1. These tests do not establish the p
    the plan-bound key. A read-only authenticated probe records the observed IP, port, host-key and
    deploy-key identities under the artifact root before the remote deployment lock or any application
    mutation. It then acquires one deployment-session lock spanning the scoring lanes named by the
-   fingerprint-bound scope and final verification. `initial-selected-v1` starts only baseline at
-   1 CPU/1 GiB; intake runs separately from its bound compiled Compose at 1 CPU/2 GiB. `full-fleet`
+   fingerprint-bound scope and final verification. `initial-selected-v1` stages baseline at
+   1 CPU/1 GiB and intake from its bound compiled Compose at 1 CPU/2 GiB, both stopped. `full-fleet`
    additionally starts shadow v2 and history and requires separate approval and capacity review.
    While holding that lock, the script streams `git archive`, pulls exact references, requires
    matching `RepoDigests`, hashes actual saved config bytes, and binds container `.Image` to the
@@ -157,10 +181,17 @@ confirm that all selected defaults remain v1. These tests do not establish the p
    the manifest ID. Both reviewed manifest and config identities remain checked.
    The v2 image is also used for a transient read-only `--check-config` capped at 1 CPU/1 GiB.
    Quiesce the previously identified old shadow worker only as explicitly approved before this
-   phase; the scoped command does not stop unselected workers. Continuous queues have no owner
-   allowlist and claim all eligible owners, so approval must name fresh global backlog counts.
-   Every started candidate must advance both its poll heartbeat and an immutable
-   publication before its persistent restart policy is enabled. The script never rebuilds on the
+   phase; the scoped command does not stop unselected workers. Initial intake and baseline claims
+   are constrained to the same private owner/device pair by contract-2 scoped RPCs. The deployment
+   streams only the plan-derived private scope into a mode-0600 file, builds the worker environment
+   from those exact bytes, and checks the actual container environment before acceptance. Canary
+   claim, replay enqueue and publication require active scope under the database lifecycle locks.
+   Approval must include fresh scoped backlog/resource observations and the guard policy. Global
+   queue service remains a separate `all-eligible` approval, not an implicit fallback.
+   Initial staging returns `CANARY_STAGED_NOT_STARTED` and retains the deployment-session lock.
+   It does not wait for publication or start either worker. The separately supervised canary keeps
+   restart policy `no` throughout acceptance. Full-fleet deployment retains its independent
+   poll/publication acceptance before enabling persistent restart. The script never rebuilds on the
    target, accepts inherited replay selectors, relabels v2 as v1, changes qualification, or exposes
    scorer ports:
 
@@ -170,7 +201,47 @@ confirm that all selected defaults remain v1. These tests do not establish the p
      --artifact-root /reviewed/frwhoop-release \
      --worker-deployment /reviewed/frwhoop-release/worker-deployment.json
    ```
-6. Review intake and every scoring container in the approved scope: identities, commands, algorithms, source revisions, restart
+6. After explicit activation approval, install and bind the exact-source guard on the target.
+   Use the private build directory printed by staging. The following commands refuse a prior
+   binding; an existing canary requires separately reviewed recovery, never overwriting its files:
+
+   ```sh
+   build=/opt/frwhoop/build/frwhoop-scoring/REVIEWED_SOURCE_AND_STAGING_DIRECTORY
+   sudo test ! -e /opt/frwhoop/canary/binding.json
+   sudo test ! -e /opt/frwhoop/canary/deployment.json
+   sudo install -d -m 700 /opt/frwhoop/canary
+   for helper in scoped-canary-guard.py scoring-admission.py verify-worker-image.py verify-pinned-postgres-client.py; do
+     sudo install -m 700 "$build/infra/vps/scripts/$helper" "/opt/frwhoop/canary/$helper"
+   done
+   sudo install -m 600 "$build/deployment.json" /opt/frwhoop/canary/deployment.json
+   sudo install -m 600 "$build/infra/vps/scoped-canary-stop-policy.json" /opt/frwhoop/canary/scoped-canary-stop-policy.json
+   sudo install -m 600 "$build/infra/vps/templates/frwhoop-scoped-canary.service" /opt/frwhoop/canary/frwhoop-scoped-canary.service
+   sudo python3 /opt/frwhoop/canary/scoped-canary-guard.py bind \
+     --plan /opt/frwhoop/canary/deployment.json \
+     --policy /opt/frwhoop/canary/scoped-canary-stop-policy.json \
+     --binding /opt/frwhoop/canary/binding.json \
+     --intake-container "$(docker inspect -f '{{.Id}}' intake-consumer)" \
+     --baseline-container "$(docker inspect -f '{{.Id}}' scoring-baseline-v1)"
+   sudo python3 /opt/frwhoop/canary/scoped-canary-guard.py validate \
+     --plan /opt/frwhoop/canary/deployment.json \
+     --policy /opt/frwhoop/canary/scoped-canary-stop-policy.json \
+     --binding /opt/frwhoop/canary/binding.json
+   sudo install -m 644 /opt/frwhoop/canary/frwhoop-scoped-canary.service /etc/systemd/system/frwhoop-scoped-canary.service
+   sudo systemctl daemon-reload
+   sudo systemctl start frwhoop-scoped-canary.service
+   ```
+
+   The service arms cleanup before starting the two immutable container IDs. `ExecStopPost` stops
+   those exact IDs after a guard crash or kill. Runtime scope/command/image drift, failed or stale
+   observations, stalled bounded debt, database connection use, container memory pressure, low
+   available host memory or disk invoke the reviewed stop policy. Thresholds are conservative
+   operational stops, not measured safe capacity. Do not enable container restart or bypass the
+   guard with direct `docker start`. `systemctl stop frwhoop-scoped-canary.service` performs the
+   same bound stop; queues, source bytes and results remain intact. Preserve all rejected state.
+   The existing session lock is released only after the exact canary acceptance or rollback is
+   reconciled, following the owner-token procedure below.
+
+7. Review intake and every scoring container in the approved scope: identities, commands, algorithms, source revisions, restart
    state, polls and publications, then review the enrolled-phone canary. Deployment success is not
    qualification, a decoded phone result, or physical displayed-state evidence.
 
@@ -211,7 +282,9 @@ Each check binds the intended hosted project and exact container/image/source/ve
 unique deployment/process UUID and two advancing polls, and rejects restarts, competing workers,
 wrong run modes, replay selectors, ports and stale/error progress. If scoring debt is observed,
 the same process must advance confirmed score completion and an immutable publication marker.
-An empty queue only proves polling; output explicitly says publication was unexercised. Delayed
+These generic scoring checks do not independently establish the private canary scope or host
+guard supervision. The matched deployment/guard checks must additionally compare actual scope
+and exact container IDs. An empty queue only proves polling; output explicitly says publication was unexercised. Delayed
 debt and exhausted revisions are not healthy work. Projection debt older than the configured
 120-second default threshold fails even when the worker heartbeat advances.
 
@@ -231,7 +304,8 @@ explicit capability/unavailable states, not evidence of a worker crash.
 ## Rollback
 
 The deployment-session lock is `/opt/frwhoop/scoring-deployment.lock`. It is removed only after every
-scoring lane in the reviewed scope passes the final check. Any interrupted or rejected partial deployment retains
+scoring lane in a full-fleet scope passes the final check. Initial canary staging deliberately
+retains it until guarded activation/acceptance or reviewed rollback is reconciled. Any interrupted or rejected partial deployment retains
 the lock and prints `DEPLOYMENT_LOCK_RETAINED`; another invocation must not remove it automatically.
 An operator must first record all affected container/config identities and rollback directories,
 resolve each lane with a reviewed compatible artifact, and only then remove the lock using the owner

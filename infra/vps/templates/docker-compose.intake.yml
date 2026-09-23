@@ -3,7 +3,7 @@ services:
   intake-consumer:
     image: ${INTAKE_WORKER_IMAGE:?A reviewed immutable intake image digest is required}
     container_name: intake-consumer
-    restart: unless-stopped
+    restart: "${INTAKE_RESTART_POLICY:?Exact reviewed restart policy required}"
     init: true
     cpus: "${INTAKE_WORKER_CPUS:-1.0}"
     mem_limit: "${INTAKE_WORKER_MEMORY_LIMIT:-2g}"
@@ -19,6 +19,9 @@ services:
       INTAKE_WORKER_SOURCE_REVISION: ${INTAKE_WORKER_SOURCE_REVISION:?Exact packaged source revision required}
       INTAKE_WORKER_INSTANCE_ID: ${INTAKE_WORKER_INSTANCE_ID:?Fresh deployment instance UUID required}
       INTAKE_EXPECTED_SUPABASE_PROJECT: ${INTAKE_EXPECTED_SUPABASE_PROJECT:?Phone hosted project required}
+      INTAKE_ADMISSION_MODE: ${INTAKE_ADMISSION_MODE:?Explicit reviewed worker admission required}
+      INTAKE_CANARY_OWNER_ID: ${INTAKE_CANARY_OWNER_ID:-}
+      INTAKE_CANARY_DEVICE_ID: ${INTAKE_CANARY_DEVICE_ID:-}
       RAW_STORE: b2
     command: []
     network_mode: bridge
