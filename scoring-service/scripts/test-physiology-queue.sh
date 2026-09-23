@@ -71,6 +71,7 @@ for migration in "$repo_dir"/supabase/migrations/*.sql; do
   fi
   "${psql_cmd[@]}" -f "$migration" >>"$pg_test_dir/migrations.log"
 done
+"${psql_cmd[@]}" -f "$service_dir/service/src/test/resources/legacy_beat_read_eligibility_test.sql" >>"$pg_test_dir/migrations.log"
 if [[ "$test_scope" == schema ]]; then
   printf 'Disposable PostgreSQL focused schema applied (tests not run): %s\n' "$pg_test_dir"
   exit 0

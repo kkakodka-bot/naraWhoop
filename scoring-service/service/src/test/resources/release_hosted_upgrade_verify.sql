@@ -59,8 +59,12 @@ begin
     'account/enrollment contract revisions diverged';
   assert enrollment_route->>'user_id'='a9910000-0000-4000-8000-000000000001',
     'enrollment route lost owner identity';
-  assert enrollment_route->'daily'->>'hrv_rmssd_ms'='42',
-    'retained v1 result is not readable after upgrade';
+  assert enrollment_route->'daily'->'hrv_rmssd_ms'='null'::jsonb,
+    'unqualified retained v1 HRV remained readable after upgrade';
+  assert enrollment_route#>>'{daily,resting_hr_bpm}'='51' and
+    enrollment_route#>>'{daily,sleep_in_bed_min}'='480', 'independent retained v1 scalar result was lost';
+  assert enrollment_route#>>'{compute,families,night_hrv,details,metric_availability,hrv_rmssd_ms,reason}'=
+    'beat_timing_unverified', 'legacy beat missingness reason absent';
 
   -- Read before regeneration: a stored predecessor disposition must not mask the
   -- corrected policy, even though its immutable historical bytes remain intact.
@@ -104,7 +108,7 @@ end $$;
 select jsonb_build_object(
   'status','PASS',
   'upgrade_baseline_full_identities',117,
-  'pending_migrations_applied',11,
+  'pending_migrations_applied',12,
   'preserved_installations',2,
   'preserved_users',2,
   'preserved_devices',2,
