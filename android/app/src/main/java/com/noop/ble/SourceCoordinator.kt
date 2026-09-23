@@ -413,6 +413,54 @@ class SourceCoordinator(
      * connecting — the caller ([switchToStrap]) does the connect-by-address-else-scan bring-up. Mirrors
      * macOS `SourceCoordinator.makeSource(for:)`.
      */
+    private val genericCaptures = mutableListOf<GenericNotificationCapture>()
+    private var activeGenericCapture: GenericNotificationCapture? = null
+    private var heldGenericCapture: GenericNotificationCapture? = null
+    private fun genericCapture(id: String, family: String): GenericNotificationCapture {
+        val captured = com.noop.account.AccountStorageContext.capture(requireNotNull(context))
+        val repo = requireNotNull(repository)
+        synchronized(genericCaptures) {
+            genericCaptures.removeAll { it.isDrained }
+            check(genericCaptures.size < 8) { "generic_capture_retained_capacity" }
+            lateinit var capture: GenericNotificationCapture
+            capture = GenericNotificationCapture.create(captured, repo, scope, id, family,
+                blocked = { onGenericCaptureBlocked(capture) }, recovered = { onGenericCaptureRecovered(capture) })
+            genericCaptures += capture
+            activeGenericCapture = capture
+            return capture
+        }
+    }
+
+    internal fun onGenericCaptureBlocked(capture: GenericNotificationCapture) {
+        scope.launch {
+            reconcileLock.withLock {
+                if (activeGenericCapture !== capture || activeStrapId != capture.identity.deviceId ||
+                    (context as? com.noop.account.AccountStorageContext)?.isCurrent() == false) return@withLock
+                heldGenericCapture = capture
+                straplog("Generic capture storage held; accepted original bytes remain pending")
+                activeSource?.stop()
+                recoverGenericCapture(capture)
+            }
+        }
+    }
+
+    internal fun onGenericCaptureRecovered(capture: GenericNotificationCapture) =
+        scope.launch { reconcileLock.withLock { recoverGenericCapture(capture) } }
+
+    /** Resume only the held instance after its committed prefix drains; never revive another scope. */
+    private suspend fun recoverGenericCapture(capture: GenericNotificationCapture) {
+        if (heldGenericCapture !== capture || activeGenericCapture !== capture || !capture.isDrained ||
+            activeStrapId != capture.identity.deviceId ||
+            (context as? com.noop.account.AccountStorageContext)?.isCurrent() == false) return
+        val id = capture.identity.deviceId
+        if (registry.activeDeviceId() != id ||
+            (context as? com.noop.account.AccountStorageContext)?.isCurrent() == false) return
+        tearDownNonWhoopSource()
+        activeStrapId = null
+        lastSeenId = null
+        reconcile(id)
+    }
+
     private fun makeSource(id: String, row: PairedDeviceRow?): LiveHrSource {
         // Non-null in production (set at the composition root); only the JVM-test paths that never reach a
         // strap switch leave it null. Fail loudly rather than silently no-op if that invariant breaks.
@@ -423,6 +471,7 @@ class SourceCoordinator(
                 liveSink = { hr -> liveSink(hr, emptyList()) },  // machine HR → the existing live recorder
                 onBattery = batterySink,                          // machine battery → the same live state
                 log = straplog,
+                durableCapture = genericCapture(id, "ftms"),
             )
             SourceKind.huami.name -> {
                 val repo = requireNotNull(repository) { "SourceCoordinator.repository is required to persist Huami samples" }
@@ -435,12 +484,14 @@ class SourceCoordinator(
                     },
                     log = straplog,
                     onBattery = batterySink,
+                    durableCapture = genericCapture(id, "huami"),
                 )
             }
             SourceKind.oura.name -> makeOuraSource(id, ctx, row)
             else -> {
                 val repo = requireNotNull(repository) { "SourceCoordinator.repository is required to persist strap samples" }
                 StandardHrSource(
+                    durableCapture = genericCapture(id, "standard_hr"),
                     context = ctx,
                     deviceId = id,
                     liveSink = liveSink,
@@ -498,6 +549,7 @@ class SourceCoordinator(
         // model is missing/unrecognised (OuraRingGen.from).
         val ringGen = OuraRingGen.from(row?.model ?: "")
         val source = OuraLiveSource(
+            durableCapture = genericCapture(id, "oura"),
             context = ctx,
             deviceId = id,
             ringGen = ringGen,
@@ -577,7 +629,7 @@ class SourceCoordinator(
             log = straplog,           // Oura connect/auth/stream lifecycle → the SAME exported strap log (#421)
             onBattery = batterySink,  // ring battery → the same live state the WHOOP strap battery uses
             onModel = { model -> scope.launch { runCatching { registry.setModel(id, model) } } },  // #772: correct a name-guessed gen
-            onSerial = { serial -> adoptOuraSerial(currentId = id, serial = serial) },  // #771
+            onSerial = { straplog("Oura: serial observed; preserving installed capture identity") },
         )
         // CONSUME the one-shot adopt-intent the wizard armed after its irreversible-consent gate AND its
         // second "Take over" confirm (and ONLY then). True permits the DANGEROUS post-factory-reset key
@@ -626,6 +678,8 @@ class SourceCoordinator(
     /** Stop the live non-WHOOP source (standard strap, FTMS machine, Huami device, or Oura ring) and drop
      *  the reference. Idempotent — exactly one source is ever live. */
     private fun tearDownNonWhoopSource() {
+        activeGenericCapture = null
+        heldGenericCapture = null
         activeSource?.stop()
         activeSource = null
         // Stop mirroring the (now torn-down) Oura source and clear the mirrors so a stale adopt outcome /

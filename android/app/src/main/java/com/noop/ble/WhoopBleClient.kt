@@ -3685,7 +3685,9 @@ class WhoopBleClient(
         LiveCaptureQueue(ioScope, StandardPacket::owner, persist = { packets ->
             val streams = StreamBatch(hr = packets.flatMap { it.streams.hr }, rr = packets.flatMap { it.streams.rr },
                 events = packets.flatMap { it.streams.events }, standardHrReceipts = packets.flatMap { it.streams.standardHrReceipts })
-            addBankedLive(repository.insert(streams, packets.first().owner.deviceId, markCloudPushDebt = true))
+            // Gate at commit too: an older queued batch cannot publish arrival-timed RR.
+            addBankedLive(repository.insert(StandardHrMapping.canonicalProjection(streams),
+                packets.first().owner.deviceId, markCloudPushDebt = true))
         }, committed = {
             BlePipelineTrace.event(context, BlePipelineTrace.Stage.LOCAL_COMMIT)
             SelfHostedPushScheduler.enqueueOnLiveCommitted(context)

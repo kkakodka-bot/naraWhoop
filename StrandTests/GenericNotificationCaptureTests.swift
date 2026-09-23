@@ -78,6 +78,29 @@ final class GenericNotificationCaptureTests: XCTestCase {
             characteristicUUID: characteristic, at: timestamp + 1))
     }
 
+    func testHuamiSIGIntervalsRemainRecoverableWithoutEnteringLegacyRR() async throws {
+        let (store, journal) = try await prepared()
+        let sink = try journal.rawNotificationSink(deviceID: device, family: "huami")
+        let source = HuamiHRSource(live: LiveState(), deviceId: device, durableCapture: sink, startCentral: false)
+        let bytes = Data([0x10, 70, 0, 4])
+        for _ in 0..<2 {
+            XCTAssertTrue(source.ingestNotification(bytes, serviceUUID: "180D", characteristicUUID: "2A37", at: timestamp))
+            await assertDrained(journal)
+        }
+        source.stop(); journal.sealCapture(); await assertDrained(journal)
+        assertEmpty(try await store.rrIntervals(deviceId: device, from: timestamp, to: timestamp + 1, limit: 10))
+        let raw = try await archive(store)
+        XCTAssertEqual(raw.count, 2)
+        XCTAssertEqual(Set(raw.compactMap { $0["sequence"] as? Int }), Set([0, 1]))
+        for original in raw {
+            let decoded = try XCTUnwrap(Data(base64Encoded: try XCTUnwrap(original["payload"] as? String)))
+            XCTAssertEqual(decoded, bytes)
+            XCTAssertEqual(StandardHeartRate.parse(Array(decoded))?.rr, [1000])
+            XCTAssertEqual(original["rrProjectionStatus"] as? String, "unqualified")
+            XCTAssertEqual(original["rrProjectionReason"] as? String, "producer_not_implemented")
+        }
+    }
+
     func testFTMSObservedHRAndMalformedOriginalBothSurviveWithoutInventedRR() async throws {
         let (store, journal) = try await prepared()
         let sink = try journal.rawNotificationSink(deviceID: device, family: "ftms")
@@ -138,7 +161,7 @@ final class GenericNotificationCaptureTests: XCTestCase {
         Data([0x60,0x12,0x02,0x00,0x01,0x00,0x80,0x7b,0x77,0x75,0x7a,0x78,0xe4,0xdd,0xcc,0xd4,0xe8,0xd7,0x9d,0x33])
     }
 
-    func testOuraExactCallbackArchivesOriginalAndCommitsAnchoredIBIWithoutLocalHR() async throws {
+    func testOuraAnchoredRecordArchivesOriginalWithoutPromotingRecordTimeToBeatTiming() async throws {
         try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
             let (store, journal) = try await prepared()
             let sink = try journal.rawNotificationSink(deviceID: device, family: "oura")
@@ -150,11 +173,12 @@ final class GenericNotificationCaptureTests: XCTestCase {
             source.ingestNotification(ouraPacket())
             source.stop(); journal.sealCapture(); await assertDrained(journal)
             let observations = try await store.rrIntervals(deviceId: device, from: timestamp, to: timestamp + 1, limit: 20)
-            XCTAssertEqual(observations.count, 6)
+            XCTAssertEqual(observations.count, 0)
             assertEmpty(try await store.hrSamples(deviceId: device, from: timestamp, to: timestamp + 1, limit: 20))
             let originals = try await archive(store)
             XCTAssertEqual(originals.count, 1)
             XCTAssertEqual(originals.first?["payload"] as? String, ouraPacket().base64EncodedString())
+            XCTAssertEqual(originals.first?["rrProjectionReason"] as? String, "producer_not_implemented")
         }
     }
 

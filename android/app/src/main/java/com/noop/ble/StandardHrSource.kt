@@ -98,6 +98,7 @@ class StandardHrSource(
      *  the Test Centre "Polar debug logging" toggle (only shown when a Polar strap is paired). Diagnostic-
      *  only — nothing gates behaviour on it. Default off keeps existing call sites / tests silent. */
     private val polarDebug: () -> Boolean = { false },
+    private val durableCapture: GenericNotificationCapture? = null,
 ) : LiveHrSource {
 
     /** Live instantaneous fitness-sensor metrics surfaced via [sensorSink]. Any field is null when it
@@ -173,7 +174,10 @@ class StandardHrSource(
         /** Non-null ONLY when this reading changed the contact state — see [StandardHrMapping.shouldRecordContact]. */
         val contact: StandardHrContact?,
         val ts: Long,
+        val receipt: com.noop.protocol.StandardHrReceipt?,
     )
+    private val receiptSession = UUID.randomUUID().toString()
+    private val receiptOrdinal = java.util.concurrent.atomic.AtomicLong()
     private val bufferLock = Any()
     private val buffer = ArrayList<Sample>()
     private var lastFlushMs = System.currentTimeMillis()
@@ -253,7 +257,10 @@ class StandardHrSource(
     }
 
     /** Tear down: cancel the connection and stop scanning, persisting anything still buffered. Idempotent. */
+    @Volatile private var acceptingCapture = true
     override fun stop() {
+        acceptingCapture = false
+        durableCapture?.seal()
         stopScan()
         pendingConnectAddress = null
         gatt?.let { runCatching { it.disconnect(); it.close() } }
@@ -279,14 +286,14 @@ class StandardHrSource(
      *  travels in the buffer until it persists: a failed flush re-buffers the sample carrying it. */
     private var lastEnqueuedContact: StandardHrContact? = null
 
-    private fun enqueue(hr: Int, rr: List<Int>, contact: StandardHrContact) {
+    private fun enqueue(hr: Int, rr: List<Int>, contact: StandardHrContact, receipt: com.noop.protocol.StandardHrReceipt?) {
         val ts = System.currentTimeMillis() / 1000L
         val shouldFlush: Boolean
         val hostLine: String
         synchronized(bufferLock) {
             val record = StandardHrMapping.shouldRecordContact(lastEnqueuedContact, contact)
             if (record) lastEnqueuedContact = contact
-            buffer.add(Sample(hr, rr, if (record) contact else null, ts))
+            buffer.add(Sample(hr, rr, if (record) contact else null, ts, receipt))
             // Twin of Collector.ingestStandardHR's host-received line. Gates on THIS sample match
             // rowsOf / Swift ingest; pending is the gated contents of the raw buffer. Cadence still
             // trips on buffer.size so we do not move the filter (#1770).
@@ -336,7 +343,8 @@ class StandardHrSource(
         }
         if (hrRows.isEmpty() && rrRows.isEmpty() && contactEvents.isEmpty()) return
         log(standardHrFlushAttemptLine(reason.raw, hrRows.size, rrRows.size))
-        persist(StreamBatch(hr = hrRows, rr = rrRows, events = contactEvents), deviceId) { result ->
+        persist(StandardHrMapping.canonicalProjection(StreamBatch(hr = hrRows, rr = rrRows,
+            events = contactEvents, standardHrReceipts = snapshot.mapNotNull { it.receipt })), deviceId) { result ->
             result.fold(
                 onSuccess = { counts ->
                     insertFailures.set(0)
@@ -527,7 +535,7 @@ class StandardHrSource(
             value: ByteArray,
         ) {
             when (ch.uuid) {
-                HEART_RATE_CHAR -> handleHr(value)
+                HEART_RATE_CHAR -> ingestHeartRateNotification(value, ch.service?.uuid?.toString() ?: HEART_RATE_SERVICE.toString())
                 in FITNESS_SENSOR_UUID16.keys -> handleFitnessSensor(ch.uuid, value)
             }
         }
@@ -537,7 +545,7 @@ class StandardHrSource(
         @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
             when (ch.uuid) {
-                HEART_RATE_CHAR -> handleHr(ch.value ?: return)
+                HEART_RATE_CHAR -> ingestHeartRateNotification(ch.value ?: return, ch.service?.uuid?.toString() ?: HEART_RATE_SERVICE.toString())
                 in FITNESS_SENSOR_UUID16.keys -> handleFitnessSensor(ch.uuid, ch.value ?: return)
             }
         }
@@ -626,6 +634,15 @@ class StandardHrSource(
         handler.post { guardedCallback("sensor-sink") { sensorSink(metrics) } }
     }
 
+    internal fun ingestHeartRateNotification(data: ByteArray, service: String = HEART_RATE_SERVICE.toString()): Boolean {
+        if (!acceptingCapture) return false
+        val capture = durableCapture
+        if (capture == null) { handleHr(data); return true }
+        val accepted = capture.capture(data, service, HEART_RATE_CHAR.toString()) { handleHr(data) }
+        if (!accepted) stop()
+        return accepted
+    }
+
     private fun handleHr(data: ByteArray) = guardedCallback("hr-parse") {
         val parsed = StandardHeartRate.parse(data) ?: return@guardedCallback
         // Log the FIRST sample of a connection only — proof that data is flowing — never every sample.
@@ -635,7 +652,16 @@ class StandardHrSource(
         }
         // Surface live HR on the main looper (the UI's StateFlow expects main-thread updates).
         handler.post { guardedCallback("live-sink") { liveSink(parsed.hr, parsed.rr) } }
-        enqueue(parsed.hr, parsed.rr, parsed.contact)
+        val now = System.currentTimeMillis()
+        val capture = durableCapture
+        if (capture != null) {
+            capture.persist(StreamBatch(hr = if (parsed.hr in 30..220) listOf(HrRow(now / 1000, parsed.hr)) else emptyList(),
+                events = listOf(StandardHrMapping.contactEvent(now / 1000, parsed.contact))))
+        } else {
+            val receipt = com.noop.protocol.StandardHrReceipt.capture(data, receiptSession,
+                receiptOrdinal.getAndIncrement(), now, android.os.SystemClock.elapsedRealtimeNanos())
+            enqueue(parsed.hr, parsed.rr, parsed.contact, receipt)
+        }
     }
 
     companion object {
