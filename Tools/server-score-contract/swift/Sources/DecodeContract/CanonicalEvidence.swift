@@ -1,6 +1,22 @@
 import Foundation
 import WhoopStore
 
+func canonicalContractMatches(_ lhs: ServerCanonicalFamilyResult, _ rhs: ServerCanonicalFamilyResult) throws -> Bool {
+    // Snapshot decoding may normalize private legacy backing fields before caching.
+    // Compare the entire admitted public contract, including every serialized identity,
+    // revision, qualification, freshness and receipt field; only use public projections
+    // for fields whose read eligibility is intentionally guarded by the production model.
+    func admitted(_ family: ServerCanonicalFamilyResult) throws -> Data {
+        var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(family)) as! [String: Any]
+        object["values"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(family.values))
+        object["details"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(family.details))
+        object["status"] = family.status
+        object["reason"] = family.reason.map { $0 as Any } ?? NSNull()
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+    }
+    return try admitted(lhs) == admitted(rhs)
+}
+
 private func changedCache(_ cache: ServerScoreDayCache,
                           _ change: (inout [String: Any]) -> Void) throws -> ServerScoreDayCache {
     var object = try JSONSerialization.jsonObject(with: JSONEncoder().encode(cache)) as! [String: Any]
@@ -71,7 +87,8 @@ func verifyCanonicalSelection(_ cache: ServerScoreDayCache, bytes: Data,
     for (key, family) in selectedResults.families {
         let decodedRaw = try JSONDecoder().decode(ServerCanonicalFamilyResult.self,
             from: JSONSerialization.data(withJSONObject: rawFamilies[key]!))
-        try require(family == decodedRaw, "\(file): \(key) identity/evidence/value changed after persistence")
+        let sameContract = try canonicalContractMatches(family, decodedRaw)
+        try require(sameContract, "\(file): \(key) identity/evidence/value changed after persistence")
         for metric in family.metrics {
             let expected = ["available", "stale"].contains(family.status) && family.hasCanonicalAuthorization && !family.isExpired()
                 ? decodedRaw.values[metric]?.number : nil
