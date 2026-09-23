@@ -562,12 +562,12 @@ class OuraDriver(
      * Decode a live-HR push (0x2F sub-op 0x28). The body is the bytes AFTER `2f 0f 28`; the push is
      * not a TLV record, so it is stamped with the last seen ring time. Per OURA_PROTOCOL.md s5.6.
      */
+    fun ingestLiveIBIPush(body: IntArray): List<OuraEvent> =
+        OuraDecoders.decodeLiveIBIPush(body, lastRingTimestamp)?.let { listOf(OuraEvent.Ibi(it)) } ?: emptyList()
+
+    /** Reference-only BPM derivation; hosted phone callers preserve the transmitted IBI. */
     fun ingestLiveHRPush(body: IntArray): List<OuraEvent> {
-        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) {
-            if (body.size < 7) return emptyList()
-            val ibi = ((body[6] and 0x0F) shl 8) or body[5]
-            return if (ibi > 0) listOf(OuraEvent.Ibi(OuraIBI(ringTimestamp = lastRingTimestamp, ibiMs = ibi))) else emptyList()
-        }
+        if (com.noop.analytics.PhoneComputeRuntime.finalHosted) return ingestLiveIBIPush(body)
         val hr = OuraDecoders.decodeLiveHRPush(body, lastRingTimestamp) ?: return emptyList()
         // The push also carries the IBI; surface both so HRV analytics see the R-R.
         return listOf(

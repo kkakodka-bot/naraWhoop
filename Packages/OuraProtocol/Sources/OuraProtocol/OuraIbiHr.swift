@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 /// Derive `hrSample`-shaped HR from the ring's BANKED IBI (`OuraIBI`). The Oura ring banks overnight IBI
 /// (`0x60`/`0x80`/`0x6E`) but NO heart-rate stream, so an Oura night otherwise lands only in `rrInterval`
@@ -19,6 +20,8 @@ public enum OuraIbiHr {
     /// yields nothing (honest-data invariant: never a guessed beat). Grouping by ring-time also collapses a
     /// record's 6-or-7 same-timestamped beats into ONE row, matching the `hrSample (deviceId, ts)` key.
     public static func perRecordMedianHR(_ ibis: [OuraIBI]) -> [OuraHR] {
+        guard PhoneComputeRuntime.permitsLocal("oura_banked_ibi_hr") else { return [] }
+        PhoneComputeRuntime.entered("oura_banked_ibi_hr")
         var byRingTime: [UInt32: [Int]] = [:]
         for ibi in ibis where ibi.ibiMs >= 300 && ibi.ibiMs <= 2000 {
             byRingTime[ibi.ringTimestamp, default: []].append(ibi.ibiMs)

@@ -11,9 +11,11 @@ let package = Package(
         .library(name: "OuraProtocol", targets: ["OuraProtocol"]),
         .executable(name: "oura-decode", targets: ["oura-decode"]),
     ],
+    dependencies: [.package(path: "../WhoopProtocol")],
     targets: [
         .target(
-            name: "OuraProtocol"
+            name: "OuraProtocol",
+            dependencies: [.product(name: "WhoopProtocol", package: "WhoopProtocol")]
         ),
         .executableTarget(
             name: "oura-decode",

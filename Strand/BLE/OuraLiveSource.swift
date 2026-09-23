@@ -826,6 +826,8 @@ public final class OuraLiveSource: NSObject, ObservableObject {
             enqueue([.sleepPhase(code.phase)], ts: code.ts)
         }
         noteStoredHistoryRingTime(burst.lastRingTimestamp)   // banked → the resume cursor may advance
+        guard PhoneComputeRuntime.permitsLocal("oura_sleep_stage_totals") else { return }
+        PhoneComputeRuntime.entered("oura_sleep_stage_totals")
         var mins = [0.0, 0.0, 0.0, 0.0]
         for code in laid { mins[code.phase.stage.rawValue] += 0.5 }   // 30 s/code = 0.5 min
         let fmt = Self.cursorDateFormatter
@@ -1087,7 +1089,8 @@ public final class OuraLiveSource: NSObject, ObservableObject {
                 onSerial: @escaping (String) -> Void = { _ in },
                 onsetKeying: @escaping () -> Bool = { false },
                 feedsLive: Bool = true,
-                adoptIntent: Bool = false) {
+                adoptIntent: Bool = false,
+                startCentral: Bool = true) {
         self.live = live
         self.deviceId = deviceId
         self.ringGen = ringGen
@@ -1110,6 +1113,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         // 0x7E/0x7F real_steps research corpus: same gate as the other Tier-B dumps.
         self.realStepsDump = feedsLive && !deviceId.isEmpty ? OuraRealStepsDump(deviceId: deviceId, log: log) : nil
         super.init()
+        guard startCentral else { return }
         // Dedicated queue-less central -> callbacks arrive on the main queue, matching @MainActor.
         #if os(iOS)
         // iOS state restoration (#1213): only the PERSISTENT live source (feedsLive, real deviceId) carries a
@@ -1256,7 +1260,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
 
     public func stopScan() {
         scanning = false
-        if central.state == .poweredOn { central.stopScan() }
+        if central?.state == .poweredOn { central.stopScan() }
     }
 
     // MARK: - Connecting
@@ -1633,7 +1637,7 @@ public final class OuraLiveSource: NSObject, ObservableObject {
         // double-counted. Per-record ring-time anchored; an unanchored record is skipped (re-derived when
         // it re-serves after the 0x42 anchor, exactly like the sibling `.ibi` rows).
         let hasLiveHR = events.contains { if case .hr = $0 { return true } else { return false } }
-        if !hasLiveHR {
+        if !hasLiveHR && PhoneComputeRuntime.permitsLocal("oura_banked_ibi_hr") {
             let bankedIbis: [OuraIBI] = events.compactMap { if case .ibi(let v) = $0 { return v } else { return nil } }
             for hr in OuraIbiHr.perRecordMedianHR(bankedIbis) {
                 if let ts = driver.unixSeconds(forRingTimestamp: hr.ringTimestamp) {
@@ -2472,6 +2476,11 @@ extension OuraLiveSource: @preconcurrency CBPeripheralDelegate {
     public func peripheral(_ peripheral: CBPeripheral,
                            didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         guard error == nil, let value = characteristic.value, characteristic.uuid == Self.notifyChar else { return }
+        ingestNotification(value)
+    }
+
+    /// Shared by CoreBluetooth and the host callback regression; no connection is created here.
+    func ingestNotification(_ value: Data) {
         let bytes = [UInt8](value)
         // The notify char carries TWO framings on the same channel (OURA_PROTOCOL.md s2):
         //   - 0x2F secure-session sub-frames (auth nonce/status, enable ACKs, live-HR pushes)
@@ -2563,6 +2572,11 @@ extension OuraLiveSource: @preconcurrency CBPeripheralDelegate {
         ingestHistory(driver.ingest(notification: bytes, reassembler: reassembler))
     }
 
+#if DEBUG
+    func prepareNotificationTestDriver(_ driver: OuraDriver) { self.driver = driver }
+    func flushNotificationTestBuffer() { flush() }
+#endif
+
     /// The ring-time floor the 0x13 unit test disambiguates against: the persisted resume cursor, or the
     /// largest envelope ring-time this drain has seen when that is further along. `maxSeenRingTime` is the
     /// half that breaks the deadlock (2026-09-02/03 captures) — it counts EVERY history record, anchored or not, so it is
@@ -2635,7 +2649,11 @@ extension OuraLiveSource: @preconcurrency CBPeripheralDelegate {
             logFeatureStatus(st)   // read-only diagnostic; never advances the state machine
         case .liveHRPush(let body):
             guard let driver else { return }
-            ingest(driver.ingestLiveHRPush(body: body))
+            if PhoneComputeRuntime.permitsLocal("oura_live_ibi_hr") {
+                ingest(driver.ingestLiveHRPush(body: body))
+            } else {
+                ingest(driver.ingestLiveIBIPush(body: body))
+            }
         case .unhandled:
             break
         }

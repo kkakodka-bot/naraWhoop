@@ -58,6 +58,13 @@ object OuraDecoders {
 
     // MARK: - Live-HR realtime push (0x2F sub-op 0x28; s5.6)
 
+    /** Extract the transmitted interval without deriving BPM or qualifying beat timing. */
+    fun decodeLiveIBIPush(body: IntArray, ringTimestamp: Long): OuraIBI? {
+        if (body.size < 7) return null
+        val ibi = ((body[6] and 0x0F) shl 8) or body[5]
+        return if (ibi > 0) OuraIBI(ringTimestamp = ringTimestamp, ibiMs = ibi) else null
+    }
+
     /**
      * Decode a live-HR push body (the bytes AFTER `2f 0f 28`). Per OURA_PROTOCOL.md s5.6 the wire
      * frame is `2f 0f 28 02 XX 02 00 00 IBI_L IBI_H 00 00 00 00 YY ZZ 7f`. The spec lists the IBI at
@@ -72,9 +79,7 @@ object OuraDecoders {
     fun decodeLiveHRPush(body: IntArray, ringTimestamp: Long): OuraHR? {
         if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("oura_live_ibi_hr")) return null
         com.noop.analytics.PhoneComputeRuntime.inferenceStarted("oura_live_ibi_hr")
-        if (body.size < 7) return null
-        val ibi = ((body[6] and 0x0F) shl 8) or body[5]
-        if (ibi <= 0) return null
+        val ibi = decodeLiveIBIPush(body, ringTimestamp)?.ibiMs ?: return null
         val bpm = Math.round(60000.0 / ibi.toDouble()).toInt()
         if (bpm <= 0 || bpm >= 300) return null   // reject implausible derived BPM, never guess
         return OuraHR(ringTimestamp = ringTimestamp, bpm = bpm, ibiMs = ibi)

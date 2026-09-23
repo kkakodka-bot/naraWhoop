@@ -25,7 +25,8 @@ data class OuraSleepSession(
  * SleepNet staging over NOOP's sparse-motion computed night — "richer record wins", reusing the exact
  * arbitration that already picks a WHOOP/HC import over a computed night (#240).
  *
- * HONEST-DATA: this is PROVIDED data (Oura's on-ring classifier), only reshaped — never a new derivation.
+ * The stage codes are ring-provided. Session aggregation and efficiency are reference/server work;
+ * final-hosted phones retain the individual codes and wait for a server result.
  *
  * PARITY: the `stagesJson` string is built by hand in a FIXED key order (`start`,`end`,`stage`) so it is
  * BYTE-IDENTICAL to the Swift twin for the same codes. Keep in lockstep with `OuraSleepSessionMapping.swift`.
@@ -47,6 +48,8 @@ object OuraSleepSessionMapping {
      * (asleep + awake) as a 0–1 fraction (null when nothing is in bed). Returns null for an empty sequence.
      */
     fun session(codes: List<Pair<Long, OuraSleepStage>>, secondsPerCode: Long = 30L): OuraSleepSession? {
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("oura_sleep_session")) return null
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("oura_sleep_session")
         val first = codes.firstOrNull() ?: return null
         val last = codes.last()
 

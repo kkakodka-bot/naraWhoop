@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 
 // Decoders: pure per-tag byte->value decoders (OURA_PROTOCOL.md s6). Each returns nil on a
 // malformed/short record (honest-data invariant): NEVER a guessed value. Body offsets in the spec are
@@ -64,12 +65,21 @@ public enum OuraDecoders {
     /// `ringTimestamp` is supplied by the caller (the push is not a TLV record; the driver stamps it
     /// with the live ring time). Example subBody[5..6] = `01 04` -> ibi 1025 ms -> ~59 bpm.
     public static func decodeLiveHRPush(_ body: [UInt8], ringTimestamp: UInt32) -> OuraHR? {
-        guard body.count >= 7 else { return nil }
-        let ibi = ((Int(body[6]) & 0x0F) << 8) | Int(body[5])
-        guard ibi > 0 else { return nil }
+        guard PhoneComputeRuntime.permitsLocal("oura_live_ibi_hr") else { return nil }
+        PhoneComputeRuntime.entered("oura_live_ibi_hr")
+        guard let observation = decodeLiveIBIPush(body, ringTimestamp: ringTimestamp) else { return nil }
+        let ibi = observation.ibiMs
         let bpm = Int((60000.0 / Double(ibi)).rounded())
         guard bpm > 0 && bpm < 300 else { return nil }   // reject implausible derived BPM, never guess
         return OuraHR(ringTimestamp: ringTimestamp, bpm: bpm, ibiMs: ibi)
+    }
+
+    /// Extract the transmitted 12-bit interval only. No heart rate or beat timestamp is inferred.
+    public static func decodeLiveIBIPush(_ body: [UInt8], ringTimestamp: UInt32) -> OuraIBI? {
+        guard body.count >= 7 else { return nil }
+        let interval = ((Int(body[6]) & 0x0F) << 8) | Int(body[5])
+        guard interval > 0 else { return nil }
+        return OuraIBI(ringTimestamp: ringTimestamp, ibiMs: interval)
     }
 
     // MARK: - IBI + amplitude, byte-scatter packed (0x60; s6.1)
