@@ -772,6 +772,11 @@ class OuraLiveSource(
         }
         for (code in laid) enqueue(listOf(OuraEvent.SleepPhaseEvent(code.phase)), code.ts.toInt())
         drain.noteStoredRingTime(burst.lastRingTimestamp, resumeCursorAtFetchStart)
+        if (!com.noop.analytics.PhoneComputeRuntime.allowsLocal("oura_sleep_stage_totals")) {
+            log("Oura: retained ${laid.size} anchored sleep-phase codes; awaiting server result")
+            return
+        }
+        com.noop.analytics.PhoneComputeRuntime.inferenceStarted("oura_sleep_stage_totals")
         val mins = DoubleArray(4)
         for (code in laid) mins[code.phase.stage.raw] += 0.5   // 30 s/code = 0.5 min
         log("Oura: hypnogram reconstructed [${laid.first().ts} -> $end, anchored] codes=${burst.totalCodes}" +
@@ -1652,7 +1657,9 @@ class OuraLiveSource(
             }
             OuraDriver.SecureRouting.EnableAck -> advance(OuraTransition.EnableAckReceived)
             is OuraDriver.SecureRouting.FeatureStatus -> logFeatureStatus(routing.value)   // read-only; no advance
-            is OuraDriver.SecureRouting.LiveHRPush -> emit(d.ingestLiveHRPush(routing.body))
+            is OuraDriver.SecureRouting.LiveHRPush -> emit(
+                if (com.noop.analytics.PhoneComputeRuntime.finalHosted) d.ingestLiveIBIPush(routing.body)
+                else d.ingestLiveHRPush(routing.body))
             OuraDriver.SecureRouting.Unhandled -> Unit
         }
     }
@@ -1730,7 +1737,7 @@ class OuraLiveSource(
         // emit). Live batches ([Hr, Ibi]) are excluded, so live HR is never double-counted. Per-record
         // ring-time anchored; an unanchored record is skipped (re-derived when it re-serves after 0x42).
         val hasLiveHR = events.any { it is OuraEvent.Hr }
-        if (!hasLiveHR) {
+        if (!hasLiveHR && com.noop.analytics.PhoneComputeRuntime.allowsLocal("oura_ibi_hr")) {
             val bankedIbis = events.mapNotNull { (it as? OuraEvent.Ibi)?.value }
             for (hr in OuraIbiHr.perRecordMedianHR(bankedIbis)) {
                 val ts = d.unixSeconds(forRingTimestamp = hr.ringTimestamp)

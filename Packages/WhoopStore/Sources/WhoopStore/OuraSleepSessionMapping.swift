@@ -1,4 +1,5 @@
 import Foundation
+import WhoopProtocol
 import OuraProtocol
 
 /// Pure, testable mapping from a reconstructed Oura hypnogram (the anchored per-code stage sequence
@@ -15,9 +16,8 @@ import OuraProtocol
 /// WHOOP/HC import over a computed night (ryanbr/noop#240). The richness exception in `SleepMerge` still
 /// protects a stage-rich computed night from a stage-less import, and vice-versa.
 ///
-/// HONEST-DATA: this is PROVIDED data (Oura's on-ring classifier), not a NOOP-COMPUTED derivation — it is
-/// the Tier-A sleep-phase codes already surfaced, only reshaped into the session's segment JSON. No new
-/// physiological signal is invented here.
+/// The stage codes are ring-provided. Session totals and efficiency are reference/server work;
+/// final-hosted phones retain individual observations and wait for a server result.
 ///
 /// PARITY: the `stagesJSON` string is built by hand in a FIXED key order (`start`,`end`,`stage`) so Swift
 /// and Kotlin emit the BYTE-IDENTICAL segment JSON for the same codes (the cross-platform stored-value
@@ -44,6 +44,8 @@ public enum OuraSleepSessionMapping {
     /// own downstream computations from the ring's IBI stream, not part of the ring's provided hypnogram.
     public static func session(fromCodes codes: [(ts: Int, stage: OuraSleepStage)],
                                secondsPerCode: Int = 30) -> CachedSleepSession? {
+        guard PhoneComputeRuntime.permitsLocal("oura_sleep_session") else { return nil }
+        PhoneComputeRuntime.entered("oura_sleep_session")
         guard let first = codes.first, let last = codes.last else { return nil }
 
         // Merge adjacent equal stages into contiguous [start,end] segments.

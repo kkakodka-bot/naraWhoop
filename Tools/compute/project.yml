@@ -13,6 +13,7 @@ targets:
       - ../../StrandTests/ScoringPreferenceContainmentTests.swift
       - ../../StrandTests/ScoringPreferenceAppTests.swift
       - Tests/FinalHostedRuntimeTests.swift
+      - ../../StrandTests/OuraHostedCallbackTests.swift
       - ../../StrandTests/CanonicalPhysiologySurfaceTests.swift
       - ../../StrandTests/CanonicalConsumerPublicationTests.swift
       - ../../StrandTests/CanonicalWorkoutInputTests.swift
@@ -25,6 +26,7 @@ targets:
     dependencies:
       - target: Strand
       - package: WhoopProtocol
+      - package: OuraProtocol
       - package: WhoopStore
       - package: NoopPush
       - package: StrandAnalytics
