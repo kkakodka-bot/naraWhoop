@@ -1,5 +1,7 @@
 # BLE repair handoff
 
+**Pre-canary update:**8d173cde artifacts are retained as exact historical identity evidence, not an approved candidate. Independent review reproduced unguarded Oura local inference; isolated repair `b164672310d1a3aaa6988532bdecea99b1e96bdc` passes its actual callback/reference tests. One-owner/device intake+baseline admission is also being implemented with additive migration128. Both changes require new integration, tests and matched builds before approval.
+
 The WHOOP/custom and standard-HR capture paths now commit scoped data durably and give fresh cloud delivery bounded service while history remains owed. This is implemented and tested development source, not physical continuity acceptance. The original incident remains OPEN.
 
 This branch starts at reviewed common base `76f2d70f621de91268e295ebcb6c6da29162991f`. Integrate it with VPS source `92c337a3168ed224bebfabc271fd4b5dd355b256`, then use one new combined SHA for migration/Edge/intake/workers/phones. The shared contract is `docs/server-repair/02_SHARED_CONTRACT.md`; the sole operational acceptance ledger is `docs/server-repair/acceptance.json` in the combined repair worktree. Development receipts below are evidence, not another acceptance ledger.
