@@ -9,7 +9,7 @@ import WhoopStore
 
 @MainActor
 final class StandardHRDurableCaptureTests: XCTestCase {
-    nonisolated static let expectedNativeCount = 32
+    nonisolated static let expectedNativeCount = 34
     private let project = "https://standard-hr-fixture.invalid"
     private let account = "00000000-0000-0000-0000-0000000000a1"
     private let device = "synthetic-standard-hr"
@@ -90,6 +90,73 @@ final class StandardHRDurableCaptureTests: XCTestCase {
         try await store.hrSamples(deviceId: id ?? device, from: timestamp - 10, to: timestamp + 100, limit: 200)
     }
 
+    func testHostedStandardCallbackRetainsOriginalRRWordsWithoutCanonicalBeatRows() async throws {
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            let store = try await store(), journal = try await prepare(store), source = try source(journal)
+            XCTAssertTrue(source.ingestHeartRateMeasurement(measurement, at: timestamp))
+            source.stop(); await finish(journal)
+            let row = try XCTUnwrap(occurrences(store).first)
+            XCTAssertEqual(row["rawBytes"] as Data, Data(measurement))
+            let captured = try JSONDecoder().decode(Streams.self, from: row["projectionJSON"] as Data)
+            XCTAssertEqual(captured.rr.map(\.rrMs), [1000, 1000], "original captured values remain immutable")
+            let heartRate = try await hr(store)
+            XCTAssertEqual(heartRate.map(\.bpm), [72])
+            let rrCount = try await store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rrInterval") }
+            XCTAssertEqual(rrCount, 0, "host arrival is not qualified beat timing")
+            XCTAssertEqual(row["projectionState"] as Int, 1)
+        }
+    }
+
+    func testHostedRecoveryGatesPreviouslyFrozenRRIntentWithoutRewritingIt() async throws {
+        let store = try await store()
+        let session = try await store.beginStandardHRCapture(owner: owner(), sessionID: UUID(),
+            runtimeGeneration: UUID(), openedAtUnixSeconds: Int64(timestamp))
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let bytes = try encoder.encode(StandardHRMapping.samples(fromHR: 72, rr: [1000, 1000],
+            contact: .supportedDetected, at: timestamp))
+        let batch = try StandardHRFrozenBatch(id: StandardHRCaptureID(sessionID: session.sessionID, sequence: 0),
+            scope: DurableIngestScope(environment: project, accountID: account, deviceID: device),
+            hostTimestampSeconds: Int64(timestamp), rawBytes: Data(measurement), projectionJSON: bytes)
+        _ = try await store.appendStandardHRCapture(batch, session: session)
+        try await store.sealStandardHRCapture(session)
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            let journal = try await prepare(store)
+            await finish(journal)
+            let row = try XCTUnwrap(occurrences(store).first)
+            XCTAssertEqual(row["projectionJSON"] as Data, bytes)
+            XCTAssertEqual(row["rawBytes"] as Data, batch.rawBytes)
+            XCTAssertEqual(row["intentSHA256"] as String, batch.intentSHA256)
+            let heartRate = try await hr(store)
+            XCTAssertEqual(heartRate.map(\.bpm), [72])
+            let rrCount = try await store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rrInterval") }
+            XCTAssertEqual(rrCount, 0)
+        }
+    }
+
+    #if !GENERIC_CAPTURE_NATIVE_TESTS
+    func testHostedWhoopStandardCollectorRetainsRawReceiptAndHRWithoutBeatProjection() async throws {
+        try await PhoneComputeRuntime.$testMode.withValue(.finalHosted) {
+            let store = try await store()
+            let collector = Collector(store: store, deviceId: device, now: { self.timestamp })
+            collector.ingestStandardHRReceipt(measurement, receivedUnixMs: Int64(timestamp) * 1000,
+                receivedMonotonicNs: 123_456_789)
+            collector.ingestStandardHR(hr: 72, rr: [1000, 1000], contact: .supportedDetected,
+                family: .whoop5, at: timestamp)
+            let flushed = await collector.flushStandardHR()
+            XCTAssertTrue(flushed)
+            let receipts = try await store.standardHrReceipts(deviceId: device, from: timestamp, to: timestamp + 1)
+            XCTAssertEqual(receipts.count, 1)
+            XCTAssertEqual(receipts.first?.rawHex, "164800040004")
+            XCTAssertEqual(receipts.first?.rrRawTicks, [1024, 1024])
+            XCTAssertEqual(receipts.first?.clockVersion, "host-arrival-unmapped")
+            let heartRate = try await hr(store)
+            XCTAssertEqual(heartRate.map(\.bpm), [72])
+            let rrCount = try await store.registryWriter.read { try Int.fetchOne($0, sql: "SELECT COUNT(*) FROM rrInterval") }
+            XCTAssertEqual(rrCount, 0)
+        }
+    }
+    #endif
+
     func testAcceptedStandardNotificationOffersCapturedWakeButMalformedAndStoppedDoNot() async throws {
         let store = try await store(), journal = try await prepare(store)
         var opportunities = 0
@@ -140,8 +207,12 @@ final class StandardHRDurableCaptureTests: XCTestCase {
         let canonical = try await hr(store)
         let rr = try await store.rrIntervals(deviceId: device, from: timestamp, to: timestamp + 1, limit: 20)
         XCTAssertEqual(canonical.count, 1)
-        XCTAssertEqual(rr.count, 2, "one notification is one original fixed mapping batch")
-        XCTAssertEqual(rr.map(\.seq), [0, 1])
+        if PhoneComputeRuntime.isFinalHosted {
+            XCTAssertTrue(rr.isEmpty, "each original notification remains retained; arrival time is not beat time")
+        } else {
+            XCTAssertEqual(rr.count, 2, "reference mode preserves the original mapping")
+            XCTAssertEqual(rr.map(\.seq), [0, 1])
+        }
     }
 
     func testEnergyAndMutableCallerBytesRetainedIndependentlyOfProjection() async throws {
@@ -482,8 +553,12 @@ final class StandardHRDurableCaptureTests: XCTestCase {
         let projection = try JSONDecoder().decode(Streams.self, from: rows[0]["projectionJSON"] as Data)
         XCTAssertEqual(projection.rr.map(\.rrMs), Array(repeating: 63999, count: 255))
         let canonical = try await store.rrIntervals(deviceId: device, from: timestamp, to: timestamp + 1, limit: 300)
-        XCTAssertEqual(canonical.count, 255)
-        XCTAssertEqual(canonical.map(\.seq), Array(0..<255))
+        if PhoneComputeRuntime.isFinalHosted {
+            XCTAssertTrue(canonical.isEmpty, "all255 raw observations remain in the immutable captured batch")
+        } else {
+            XCTAssertEqual(canonical.count, 255)
+            XCTAssertEqual(canonical.map(\.seq), Array(0..<255))
+        }
     }
 
     func testSixteenBitHRAndAcceptedTrailingByteStayFaithfulToExistingParser() async throws {

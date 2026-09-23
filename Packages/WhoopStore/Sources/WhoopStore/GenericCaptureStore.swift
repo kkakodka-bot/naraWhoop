@@ -428,7 +428,8 @@ extension WhoopStore {
         guard let row else { return .empty }
         do {
             let batch = try Self.standardHRBatch(row, owner: owner)
-            let streams = try StandardHRFrozenBatch.decodeProjection(batch.projectionJSON, timestamp: batch.hostTimestampSeconds)
+            let captured = try StandardHRFrozenBatch.decodeProjection(batch.projectionJSON, timestamp: batch.hostTimestampSeconds)
+            let streams = StandardHRMapping.canonicalProjection(captured)
             try Task.checkCancellation()
             // T2: existing canonical insertion and upload debt, one immutable notification.
             _ = try await insertAndMarkJobsOwed(streams, deviceId: batch.scope.deviceID,
