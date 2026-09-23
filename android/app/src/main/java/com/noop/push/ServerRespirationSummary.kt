@@ -49,7 +49,8 @@ data class ServerRespirationSummary(
             var primary = if (visible) scalar else null
             if (!visible) reason = reason ?: "respiration_unavailable"
             if (legacy) {
-                reason = reason ?: "legacy_quality_unavailable"
+                primary = null
+                reason = LegacyBeatReadEligibility.reason
             } else if (primary != null) {
                 if (context != "main_sleep") {
                     primary = null; reason = "incompatible_respiration_context"

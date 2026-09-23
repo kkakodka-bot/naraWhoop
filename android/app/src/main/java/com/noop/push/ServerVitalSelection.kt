@@ -22,7 +22,7 @@ data class ServerVitalSelection(
                     overlay: ServerScoreDayCache?, localValue: Double?): ServerVitalSelection {
             val family = overlay?.takeIf { it.day == selectedDay }?.compute?.familyFor(metric.key)
             if (family != null) return ServerVitalSelection(family.number(metric.key), true, selectedDay,
-                overlay.readFailure ?: family.reason ?: family.status, overlay.stale || family.status == "stale",
+                overlay.readFailure ?: family.unavailableReason(metric.key) ?: family.reason ?: family.status, overlay.stale || family.status == "stale",
                 family.family, family.deviceId, family.algorithmVersion, family.resultRevision)
             val feature = overlay?.features?.get(metric.feature)
             val owned = overlay?.ownedMetrics?.contains(metric.key) ?: serverEnabled
@@ -40,6 +40,12 @@ data class ServerVitalSelection(
                 Metric.SPO2 -> overlay.daily?.spo2Pct to "hrv"
                 Metric.SKIN_TEMP -> overlay.daily?.skinTempC to "hrv"
             }
+            val legacyMarker = runCatching { org.json.JSONObject(overlay.rawSnapshotJSON ?: "")
+                .getJSONObject("server_scoring").getJSONObject("features").getJSONObject(metric.feature)
+                .optJSONObject("input_eligibility") }.getOrNull()
+            if (!LegacyBeatReadEligibility.permits(feature?.algorithmVersion, metric.key, legacyMarker))
+                return ServerVitalSelection(null, true, selectedDay, LegacyBeatReadEligibility.reason, overlay.stale,
+                    featureKey, feature?.deviceId, feature?.algorithmVersion)
             val status = feature?.status ?: "unavailable"
             val available = feature?.isCanonicalAvailable == true
             if (!available || value == null) {
