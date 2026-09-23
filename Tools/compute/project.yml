@@ -14,6 +14,9 @@ targets:
       - ../../StrandTests/ScoringPreferenceAppTests.swift
       - Tests/FinalHostedRuntimeTests.swift
       - ../../StrandTests/OuraHostedCallbackTests.swift
+      - ../../StrandTests/GenericNotificationCaptureTests.swift
+      - ../../StrandTests/GenericCaptureJournalTests.swift
+      - ../../StrandTests/StandardHRDurableCaptureTests.swift
       - ../../StrandTests/CanonicalPhysiologySurfaceTests.swift
       - ../../StrandTests/CanonicalConsumerPublicationTests.swift
       - ../../StrandTests/CanonicalWorkoutInputTests.swift
@@ -83,3 +86,22 @@ schemes:
         NARA_TEST_FIXTURE_ROOT: "$(BUILT_PRODUCTS_DIR)/fixtures"
       targets:
         - ComputeChecksTests
+
+  GenericCaptureChecks:
+    build:
+      targets:
+        Strand: all
+    test:
+      config: Debug
+      environmentVariables:
+        NOOP_HERMETIC_TESTING: "1"
+        NOOP_TEST_DISABLE_BLUETOOTH: "1"
+        NOOP_COMPUTE_REFERENCE_TESTS: "0"
+        NARA_TEST_FIXTURE_ROOT: "$(BUILT_PRODUCTS_DIR)/fixtures"
+      targets:
+        - name: ComputeChecksTests
+          selectedTests:
+            - GenericNotificationCaptureTests
+            - GenericCaptureJournalTests
+            - StandardHRDurableCaptureTests
+            - OuraHostedCallbackTests
