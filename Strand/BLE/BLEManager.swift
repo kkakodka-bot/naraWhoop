@@ -1004,6 +1004,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// work in the old collector; retry via drainCaptureAfterAccountChange(), never a new store.
     private(set) var accountChangeDrainTask: Task<Bool, Never>?
     private(set) var ingestStore: WhoopStore?
+    let opticalRecorder = BluetoothOpticalRecorder()
+    let liveBluetoothDiagnostics = LiveBluetoothDiagnostics()
+    private var opticalCommandGate = false
     /// Admits the raw-data command family to the 5/MG send() allowlist for the duration of the
     /// recorder's OWN start/stop sends (and the unexpected-producer fail-safe's). Held only around
     /// those sends; never left on — a default install can never form these bytes.
@@ -1151,8 +1154,10 @@ public final class BLEManager: NSObject, ObservableObject {
     /// #520 DIS: remembered at discovery, READ post-bond — and since #1635 also on a SUPPRESSED link that
     /// will never bond, which is now a permanent state rather than a transient one. The #490 note (a 5/MG
     /// refuses standard reads before the link is encrypted) is the open question that attempt settles
-    /// either way. Serial + hardware revision are immutable, so they are read ONCE per connection
-    /// (`disRead`), never re-polled like the battery.
+    /// either way. Serial + hardware revision are immutable, so the authenticated read is issued ONCE
+    /// per connection (`disRead`), never re-polled like the battery. The unbonded probe has its own latch:
+    /// it is intentionally allowed to run first without consuming this authenticated read, because a
+    /// pre-bond response can be a truncated prefix and cannot establish the stable device identity.
     /// Peripheral whose GATT tree has already been dumped, so the ~30-line enumeration is emitted once per
     /// device rather than once per connect (#1635). Not persisted: a fresh launch is exactly when the tree
     /// is worth seeing again, and a strap whose firmware changed between runs may expose something new.
@@ -1161,6 +1166,7 @@ public final class BLEManager: NSObject, ObservableObject {
     private var disSerialCharacteristic: CBCharacteristic?
     private var disHwRevCharacteristic: CBCharacteristic?
     private var disRead = false
+    private var disUnbondedReadAttempted = false
     /// 3.0s — the Kotlin twin's `BATTERY_ON_CONNECT_DELAY_MS * 2` (1500 × 2), and the same 1.5s on-connect
     /// pacing this file already uses before `requestSync(.connect)`. Long enough that the link has settled
     /// after the suppression decision, short enough to land in the same session. Pinned to the twin's
@@ -1901,6 +1907,9 @@ public final class BLEManager: NSObject, ObservableObject {
                         self.offloadSkinTemp += skinTemp; self.offloadSpo2 += spo2
                     }
                 }
+            },
+            opticalSink: { [weak self] deviceId, frames in
+                await MainActor.run { self?.opticalRecorder.persistHistory(deviceId: deviceId, frames: frames) ?? false }
             })
         hooks.onQuarantined = { [weak self, weak actor] count in
             await MainActor.run {
@@ -2222,6 +2231,13 @@ public final class BLEManager: NSObject, ObservableObject {
         central?.stopScan()
     }
 
+    /// Whether a registry removal is allowed to release the live BLE source. A nil id preserves the
+    /// legacy "release the current strap" call, while an explicit id prevents a stale duplicate row
+    /// sharing the same CoreBluetooth peripheral id from tearing down the active connection.
+    nonisolated static func removalTargetsCurrentDevice(removedDeviceId: String?, currentDeviceId: String) -> Bool {
+        removedDeviceId == nil || removedDeviceId == currentDeviceId
+    }
+
     /// #78: fully RELEASE a strap when the user removes it from the Devices screen. Archiving the registry
     /// row alone left the strap connected — NOOP kept re-grabbing it (the 3s disconnect→reconnect timer, the
     /// targeted-connect pin, and iOS state restoration ALL still pointed at it), so it stayed connected and
@@ -2229,9 +2245,13 @@ public final class BLEManager: NSObject, ObservableObject {
     /// can't show its blue pairing LEDs). Stop auto-reconnect, drop the live link, and clear the targeting +
     /// restoration references that point at this strap so NOOP lets go for good — until the user deliberately
     /// reconnects (which clears `intentionalDisconnect` again via connect()).
-    public func forgetDevice(_ peripheralId: String?) {
+    public func forgetDevice(_ peripheralId: String?, deviceId: String? = nil) {
         let target = peripheralId.flatMap { UUID(uuidString: $0) }
-        let isCurrent = target == nil || peripheral?.identifier == target
+        // A stale registry row can share a peripheralId with the active row after a re-pair. The
+        // registry id is the disambiguator: removing that stale row must not release the live strap.
+        let isCurrentDevice = Self.removalTargetsCurrentDevice(removedDeviceId: deviceId,
+                                                               currentDeviceId: self.deviceId)
+        let isCurrent = isCurrentDevice && (target == nil || peripheral?.identifier == target)
         if isCurrent { invalidateBackfillDelivery() }
         // Captured BEFORE the teardown below nils `peripheral`, since a nil argument means "the current
         // strap" and that is the only place its identifier can still be read.
@@ -3417,7 +3437,9 @@ public final class BLEManager: NSObject, ObservableObject {
     /// are appended; non-IMU frames return immediately. WHOOP 4.0 live IMU still flows through
     /// `Collector.recordGroundTruthImu` on the `collector?.ingest` path.
     private func recordGroundTruthImuFrame(_ frame: [UInt8]) {
-        guard Whoop5RawImu.rawColumns(frame) != nil,
+        guard ImuContinuousRecorder.isFreshLiveFrame(frame, isOffload: false,
+            receivedAtMs: Int64(Date().timeIntervalSince1970 * 1_000)),
+              Whoop5RawImu.rawColumns(frame) != nil,
               verifyFrame(frame, family: .whoop5).crc32OK == true else { return }
         _ = imuSessionStore.append(deviceId: deviceId, frame: frame,
             receivedAtMs: Int64(Date().timeIntervalSince1970 * 1_000))
@@ -3462,7 +3484,14 @@ public final class BLEManager: NSObject, ObservableObject {
         }
         let isSensorOpcode = command == .startRawData
             || command == .stopRawData || command == .toggleIMUMode
-        if isSensorOpcode && !sensorControlWriteAuthorized {
+        let continuousSensorWrite = rawDataCommandGate
+            && (imuRecorder.expectsImuPackets || opticalRecorder.status.enabled)
+            && !sensorAcquisition.isActive && !sensorAcquisition.cleanupRequired
+            && !sensorCommandLaneTaintedUntilReconnect
+            && ((command == .startRawData && payload == [0x01])
+                || (command == .stopRawData && payload == [0x01])
+                || (command == .toggleIMUMode && (payload == [0x01, 0x01] || payload == [0x01, 0x00])))
+        if isSensorOpcode && !sensorControlWriteAuthorized && !continuousSensorWrite {
             log("send(\(command.label)) blocked — stock-sensor opcodes are controller-owned")
             return false
         }
@@ -3918,6 +3947,12 @@ public final class BLEManager: NSObject, ObservableObject {
         case 47, 48, 49, 50, 56: return true   // HISTORICAL_DATA / EVENT / METADATA / CONSOLE_LOGS
         default: return false              // 40 REALTIME_DATA, 43 REALTIME_RAW_DATA (live flood)
         }
+    }
+
+    /// Traffic lanes follow the completed frame type, not the global backfill flag: realtime type 40/43
+    /// frames continue to arrive on the proprietary channel while a historical drain is active.
+    static func trafficLane(for frame: [UInt8], family: DeviceFamily) -> LiveBluetoothDiagnostics.TrafficLane {
+        isOffloadFrame(frame, family: family) ? .backfill : .live
     }
 
     /// Re-arm the idle watchdog. Called on every offload frame during backfill so the timer resets
@@ -6326,6 +6361,7 @@ public final class BLEManager: NSObject, ObservableObject {
         disHwRevCharacteristic = nil
         disExtraCharacteristics = []
         disRead = false
+        disUnbondedReadAttempted = false
         disSerial = nil
         disHwRev = nil
         disFirmware = nil
@@ -6444,8 +6480,12 @@ public final class BLEManager: NSObject, ObservableObject {
         // and the earliest can land before DIS discovery has completed. Setting the flag unconditionally
         // would burn the one-shot on a call where the characteristics were still nil, and the variant
         // would never resolve. Leaving it unset lets a later caller (the keep-alive tick) pick it up.
-        if !disRead, selectedModel.deviceFamily != .whoop4,
-           let serialChar = disSerialCharacteristic, serialChar.properties.contains(.read) {
+        let hasReadableSerial = disSerialCharacteristic?.properties.contains(.read) == true
+        if shouldReadDisPostBond(isWhoop5: selectedModel.deviceFamily == .whoop5,
+                                 bonded: didBond,
+                                 alreadyReadThisLink: disRead,
+                                 hasReadableCharacteristic: hasReadableSerial),
+           let serialChar = disSerialCharacteristic {
             disRead = true
             p.readValue(for: serialChar)
             if let c = disHwRevCharacteristic, c.properties.contains(.read) { p.readValue(for: c) }
@@ -6489,14 +6529,14 @@ public final class BLEManager: NSObject, ObservableObject {
             .map { defaults.bool(forKey: $0) } ?? false
         guard shouldReadDisUnbonded(isWhoop5: selectedModel.deviceFamily == .whoop5,
                                     bonded: didBond,
-                                    alreadyReadThisLink: disRead,
+                                    alreadyReadThisLink: disUnbondedReadAttempted,
                                     previouslyRefused: refused) else { return }
         guard let serialChar = disSerialCharacteristic, serialChar.properties.contains(.read) else {
             log("DIS: serial characteristic unavailable — hardware variant stays unknown")
             return
         }
         log("DIS: trying the identity read on an UNbonded link — unproven, and a refusal is itself the answer to whether DIS needs an encrypted bond (#490)")
-        disRead = true
+        disUnbondedReadAttempted = true
         p.readValue(for: serialChar)
         if let c = disHwRevCharacteristic, c.properties.contains(.read) { p.readValue(for: c) }
         readDisExtras(p)
@@ -6577,16 +6617,24 @@ public final class BLEManager: NSObject, ObservableObject {
     /// leaves the strap on its existing id: adopting onto a junk id would migrate every device-scoped row
     /// onto a garbage key, which is worse than not adopting.
     private func adoptWhoopSerialIdentity() {
-        guard let rs = registryStore,
+        // DIS can expose a prefix on the unencrypted link. Only an authenticated read is authoritative
+        // enough to rename a device namespace; otherwise a short prefix could strand history under a
+        // plausible-looking but incomplete serial id.
+        guard didBond,
+              let rs = registryStore,
               let serialId = WhoopSerialIdentity.adoptedId(serial: adoptableSerial),
-              let active = try? rs.all().first(where: { $0.status == .active }),
+              // Use the identity that owns THIS live BLE source, not an arbitrary active row. With two
+              // WHOOPs paired, a DIS callback from the non-selected strap must never migrate the selected
+              // strap's history onto the callback's serial (or vice versa).
+              let active = try? rs.all().first(where: { $0.id == deviceId && $0.status == .active }),
               WhoopSerialIdentity.mayAdopt(currentId: active.id),
               active.id != serialId
         else { return }
         let currentId = active.id
         Task { @MainActor [weak self] in
             guard let self, let rs = self.registryStore,
-                  (try? rs.all().first(where: { $0.status == .active }))?.id == currentId
+                  self.deviceId == currentId,
+                  (try? rs.all().first(where: { $0.id == currentId && $0.status == .active }))?.id == currentId
             else { return }
             guard (try? rs.adoptSerialIdentity(from: currentId, to: serialId)) == true else { return }
             try? rs.setActive(serialId)
@@ -6966,6 +7014,7 @@ public final class BLEManager: NSObject, ObservableObject {
         collector?.ingestStandardHR(hr: m.hr, rr: m.rr, contact: m.contact,
                                     family: router.family,
                                     at: Int(Date().timeIntervalSince1970))
+        liveBluetoothDiagnostics.receiveHeartRate(data, at: now)
     }
 }
 
@@ -7223,6 +7272,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
             central.cancelPeripheralConnection(peripheral)
             return
         }
+        liveBluetoothDiagnostics.reset()
         cancelScanFallback()
         cancelPendingConnectProbe()   // #730: the connect resolved; no pending-connect log needed
         failedConnectAttempts = 0   // a successful connect clears the reconnect backoff (#414)
@@ -7789,6 +7839,7 @@ extension BLEManager: @preconcurrency CBCentralManagerDelegate {
     /// notifications are re-routed without user interaction.
     public func centralManager(_ central: CBCentralManager,
                                willRestoreState dict: [String: Any]) {
+        liveBluetoothDiagnostics.reset()
         if onboardingSetup.required, onboardingSetup.phase != .ready {
             // A restored peripheral is not fresh evidence that the user approved
             // pairing. Resume only through the setup screen's explicit retry.
@@ -8268,6 +8319,10 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 noteGenuineBond(of: peripheral)   // #52: this strap bonds fine; clears any pin-refusal streak
                 emitConnectionBondState("encryptedBond family=whoop5 (CLIENT_HELLO acked)")
                 log("WHOOP 5/MG: CLIENT_HELLO acked — link established; subscribing notify chars (experimental).")
+                // A pre-bond DIS probe may have populated only a truncated prefix. The authenticated
+                // read below can now provide the complete serial; retry adoption immediately as well as
+                // from its eventual callback so a repair cannot leave a UUID row stranded.
+                adoptWhoopSerialIdentity()
             }
             enableLiveNotifications(reason: "post-bond 5/MG")   // proprietary + standard subscriptions
             if sensorAcquisition.cleanupRequired {
@@ -8624,6 +8679,18 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
         }
         guard let data = characteristic.value else { return }
         let bytes = [UInt8](data)
+        // Count every raw Bluetooth value exactly once. Standard-profile traffic is inherently live;
+        // proprietary traffic is lane-classified only after reassembly, because live type 40/43 frames
+        // continue to arrive on those same characteristics during a historical drain.
+        let proprietaryTraffic = characteristic.uuid == BLEManager.dataNotifyChar
+            || characteristic.uuid == BLEManager.cmdNotifyChar
+            || characteristic.uuid == BLEManager.eventNotifyChar
+            || BLEManager.whoop5NotifyChars.contains(characteristic.uuid)
+        if proprietaryTraffic {
+            liveBluetoothDiagnostics.receiveIncomingBytes(bytes.count)
+        } else {
+            liveBluetoothDiagnostics.receiveBytes(bytes.count, lane: .live)
+        }
         if consumeOnboardingValue(bytes, characteristic: characteristic, peripheral: peripheral) { return }
         // Level A is authoritative: persist the exact notification value before routing,
         // reassembly, packet classification, or any semantic decoder can touch it.
@@ -8658,11 +8725,19 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                 state.setBattery(Double(pct))
             }
         case BLEManager.disSerialChar:
+            guard self.peripheral?.identifier == peripheral.identifier else {
+                log("DIS identity ignored from a stale peripheral callback")
+                return
+            }
             // #520: NUL-terminated ASCII per the DIS spec; trim any padding before resolving.
             disSerial = String(decoding: bytes, as: UTF8.self)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines))
             noteWhoop5VariantFromDIS()
         case BLEManager.disHwRevChar:
+            guard self.peripheral?.identifier == peripheral.identifier else {
+                log("DIS identity ignored from a stale peripheral callback")
+                return
+            }
             disHwRev = String(decoding: bytes, as: UTF8.self)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines))
             noteWhoop5VariantFromDIS()
@@ -8702,6 +8777,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
              BLEManager.eventNotifyChar:
             // Reassemble (no-op for already-complete frames) then route each complete frame.
             for frame in reassembler.feed(bytes, characteristicID: characteristic.uuid.uuidString) {
+                liveBluetoothDiagnostics.receiveFrame(frame, family: .whoop4)
+                liveBluetoothDiagnostics.receiveClassifiedBytes(
+                    frame.count,
+                    lane: BLEManager.trafficLane(for: frame, family: .whoop4)
+                )
                 if backfilling, BLEManager.isOffloadFrame(frame, family: .whoop4) {
                     // Historical replay is bulk sync traffic, not live UI traffic. Feed it only to
                     // the Backfiller; parsing every record through FrameRouter updates SwiftUI for
@@ -8791,6 +8871,11 @@ extension BLEManager: @preconcurrency CBPeripheralDelegate {
                     noteRealtimeImuCandidateAfterStop(validated: false)
                 }
                 for frame in reassembler.feed(bytes, characteristicID: characteristic.uuid.uuidString) {
+                    liveBluetoothDiagnostics.receiveFrame(frame, family: .whoop5)
+                    liveBluetoothDiagnostics.receiveClassifiedBytes(
+                        frame.count,
+                        lane: BLEManager.trafficLane(for: frame, family: .whoop5)
+                    )
                     let isOffload = backfilling && BLEManager.isOffloadFrame(frame, family: .whoop5)
                     noteSensorAcquisitionFirmwareResponse(frame)
                     noteWhoop5R22Telemetry(frame, duringOffload: isOffload)   // #174 deep-data telemetry

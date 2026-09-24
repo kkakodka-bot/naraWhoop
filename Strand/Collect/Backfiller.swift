@@ -294,6 +294,7 @@ final class Backfiller {
     /// Collector window is durably on disk. nil (tests / non-prod inits) skips the seam entirely.
     /// A false return stalls the ack exactly like a decoded-insert failure (#57): the strap keeps
     /// and re-sends the chunk rather than trimming past session data we never persisted.
+    private let opticalSink: ((_ deviceId: String, _ frames: [[UInt8]]) async -> Bool)?
     private let imuSessionSink: ((_ deviceId: String, _ records: [(baseTs: Int, columns: [Int16])]) -> Bool)?
     /// Per-chunk outcome hook (#77 family): (didDecodeSensorRows, wasConsoleOnly). Lets BLEManager
     /// tally a session so a COMPLETED-but-empty offload (all console, no sensor records) can tell the
@@ -339,6 +340,7 @@ final class Backfiller {
          log: ((String) async -> Void)? = nil,
          rejectedSink: ((_ frames: [[UInt8]], _ trim: UInt32, _ family: DeviceFamily) async -> Bool)? = nil,
          imuSessionSink: ((_ deviceId: String, _ records: [(baseTs: Int, columns: [Int16])]) -> Bool)? = nil,
+         opticalSink: ((_ deviceId: String, _ frames: [[UInt8]]) async -> Bool)? = nil,
          onChunk: ((_ decoded: Bool, _ console: Bool) async -> Void)? = nil,
          connectionActive: @escaping () -> Bool = { false },
          connectionLog: ((String) async -> Void)? = nil,
@@ -366,6 +368,7 @@ final class Backfiller {
         self.log = log
         self.rejectedSink = rejectedSink
         self.imuSessionSink = imuSessionSink
+        self.opticalSink = opticalSink
         self.onChunk = onChunk
         self.connectionActive = connectionActive
         self.connectionLog = connectionLog
@@ -1161,6 +1164,14 @@ final class Backfiller {
                     return
                 }
                 rawMs = Int((monotonic() - rawStart) * 1000)
+            }
+
+            if family == .whoop5, let opticalSink, !(await opticalSink(deviceId, frames)) {
+                await log?("Backfill: optical write failed (trim=\(trim)) — holding ack")
+                persistStalled = true
+                await notePersistFailure(trim: trim, reason: "optical archive failed")
+                await recordPhaseSample()
+                return
             }
 
             // FRWHOOP issue #1: historical 100 Hz IMU buffers in this chunk belong to any registered

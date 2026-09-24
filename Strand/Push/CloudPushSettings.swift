@@ -264,6 +264,7 @@ enum CloudPushSettings {
     static func recordScopedRun(context: AccountSessionContext, state: RunState, message: String? = nil,
                                 batches: Int = 0, records: Int = 0) {
         guard CloudRuntimeIdentity.isCurrent(context) else { return }
+        CloudUploadProgressCenter.shared.record(state: state, message: message, batches: batches, records: records)
         let prefix = "account.\(context.scope.namespace).cloudPush."
         let defaults = UserDefaults.standard
         defaults.set(state.rawValue, forKey: prefix + "runState")

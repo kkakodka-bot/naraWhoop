@@ -8,11 +8,13 @@ import {
   parseNdjsonEntity,
   buildAck,
   ackMatchesBatch,
+  REPLACE_STREAM_PROJECTIONS,
   PushProtocolError,
   APPEND_STREAM_PROJECTIONS,
   recordTimestamp,
 } from '../_shared/registry.ts';
 import { OBJECT_LANE_STREAMS } from '../_shared/keys.ts';
+import { deleteReplacementRows } from '../_shared/ingest.ts';
 
 const OBJECT_LANE_PATH = '/functions/v1/push/objects';
 
@@ -128,6 +130,60 @@ Deno.test('capabilities: the objectLane block appears only alongside the streams
     objectLane: lane,
   });
   assert.equal(v11.objectLane, undefined, 'a 1.1 sender must not be told about the object lane');
+});
+
+Deno.test('event labels are advertised only to 1.2 clients and map to durable annotations', () => {
+  assert.ok(advertisedStreams('1.2').includes('eventLabel'));
+  assert.ok(!advertisedStreams('1.1').includes('eventLabel'));
+  assert.ok(!advertisedStreams('1.0').includes('eventLabel'));
+
+  const row = REPLACE_STREAM_PROJECTIONS.eventLabel.mapRow({
+    userId: '11111111-1111-4111-8111-111111111111',
+    deviceId: '22222222-2222-4222-8222-222222222222',
+    sourceId: '33333333-3333-4333-8333-333333333333',
+    batchId: '44444444-4444-4444-8444-444444444444',
+    replacementId: '55555555-5555-4555-8555-555555555555',
+    record: {
+      key: { id: '66666666-6666-4666-8666-666666666666', startTs: 1_789_763_348 },
+      data: {
+        label: 'Outdoor walk', endTs: 1_789_763_438, notes: 'sunny',
+        timeZoneIdentifier: 'America/Los_Angeles', source: 'manual_experiment',
+      },
+    },
+  });
+  assert.equal(row?.external_id, '66666666-6666-4666-8666-666666666666');
+  assert.equal(row?.label, 'Outdoor walk');
+  assert.equal(row?.source, 'patient');
+  assert.equal(row?.confidence, 'confirmed');
+  assert.equal(row?.local_source, 'manual_experiment');
+});
+
+Deno.test('event-label replacement deletes are scoped to the uploading installation', async () => {
+  const selects: string[] = [];
+  const deletes: string[] = [];
+  const rest = {
+    configured: true,
+    async select(_table: string, query: string) {
+      selects.push(query);
+      return [
+        { id: 'delete-me', external_id: 'old-event' },
+        { id: 'keep-me', external_id: 'current-event' },
+      ];
+    },
+    async delete(_table: string, query: string) { deletes.push(query); },
+  };
+
+  await deleteReplacementRows(rest as any, 'noop_event_labels', {
+    userId: 'user',
+    deviceId: 'device',
+    sourceId: '33333333-3333-4333-8333-333333333333',
+    startTsGte: 1_789_689_600,
+    startTsLt: 1_789_776_000,
+    keepKeys: new Set(['current-event']),
+  });
+
+  assert.match(selects[0], /source_id=eq\.33333333-3333-4333-8333-333333333333/);
+  assert.deepEqual(deletes, ['id=eq.delete-me']);
 });
 
 Deno.test('negotiateProtocol picks the newest mutually-supported version or refuses', () => {

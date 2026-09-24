@@ -10,10 +10,16 @@ import WhoopStore
 struct CloudPushSnapshot: PushSnapshotSource {
     private let db: any DatabaseWriter
     private let imuPushSource: (any ImuSessionPushSource)?
+    private let eventPushSource: (any ExperimentEventPushSource)?
 
-    init(db: any DatabaseWriter, imuPushSource: (any ImuSessionPushSource)? = nil) {
+    init(
+        db: any DatabaseWriter,
+        imuPushSource: (any ImuSessionPushSource)? = nil,
+        eventPushSource: (any ExperimentEventPushSource)? = nil
+    ) {
         self.db = db
         self.imuPushSource = imuPushSource
+        self.eventPushSource = eventPushSource
     }
 
     func knownDeviceIds(capabilities: PushCapabilities) async throws -> [String] {
@@ -25,7 +31,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 let sql = "SELECT DISTINCT deviceId FROM \(sqlTable(table)) WHERE deviceId <> ''"
                 try String.fetchAll(db, sql: sql).forEach { ids.insert($0) }
             }
-            for table in capabilities.mutableTables {
+            for table in capabilities.mutableTables where table != .eventLabel {
                 let sql = "SELECT DISTINCT deviceId FROM \(sqlTable(table)) WHERE deviceId <> ''"
                 try String.fetchAll(db, sql: sql).forEach { ids.insert($0) }
             }
@@ -41,12 +47,15 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 ids.formUnion(try archives.archiveDeviceIDs())
             }
         }
+        if capabilities.mutableTables.contains(.eventLabel), let eventPushSource {
+            ids.formUnion(await eventPushSource.eventDeviceIds())
+        }
         return Array(ids).sorted()
     }
 
     func appendRecordAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> PushAppendRecord? {
         try await db.read { db in
-            let spec = appendSpec(table)
+            let spec = Self.appendSpec(table)
             let sql = """
                 SELECT rowid AS _pushRowId, \(table.isScalarExtension ? "*" : spec.columns.joined(separator: ", "))
                 FROM \(spec.sqlName)
@@ -66,7 +75,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
     ) async throws -> [PushAppendRecord] {
         precondition(limit >= 1 && limit <= PushProtocolLimits.maxRecords + 1)
         return try await db.read { db in
-            let spec = appendSpec(table)
+            let spec = Self.appendSpec(table)
             let sql = """
                 SELECT rowid AS _pushRowId, \(table.isScalarExtension ? "*" : spec.columns.joined(separator: ", "))
                 FROM \(spec.sqlName)
@@ -87,6 +96,29 @@ struct CloudPushSnapshot: PushSnapshotSource {
         limit: Int
     ) async throws -> [PushMutableRecord] {
         precondition(limit >= 1 && limit <= PushProtocolLimits.maxMutableSnapshotRecords + 1)
+        if table == .eventLabel {
+            guard let eventPushSource else { return [] }
+            return await eventPushSource.eventSnapshot(
+                deviceId: deviceId,
+                from: window.startTsInclusive,
+                to: window.endTsExclusive,
+                limit: limit
+            ).map { event in
+                PushMutableRecord(
+                    key: [
+                        "id": .string(event.id.uuidString.lowercased()),
+                        "startTs": .int(Int64(event.startUnixSeconds.rounded(.down))),
+                    ],
+                    data: [
+                        "label": .string(event.label),
+                        "endTs": event.endUnixSeconds.map { .int(Int64($0.rounded(.down))) } ?? .null,
+                        "notes": event.note.map(PushJSONValue.string) ?? .null,
+                        "timeZoneIdentifier": .string(event.timeZoneIdentifier),
+                        "source": .string(event.source),
+                    ]
+                )
+            }
+        }
         return try await db.read { db in
             let spec = mutableSpec(table)
             let (predicate, arguments): (String, [DatabaseValueConvertible?])
@@ -94,7 +126,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
             case .dailyMetric, .journal:
                 predicate = "deviceId = ? AND day >= ? AND day <= ?"
                 arguments = [deviceId, window.fromDay, window.toDay]
-            case .sleepSession, .workout:
+            case .sleepSession, .workout, .eventLabel:
                 predicate = "deviceId = ? AND startTs >= ? AND startTs < ?"
                 arguments = [deviceId, window.startTsInclusive, window.endTsExclusive]
             }
@@ -109,6 +141,11 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 mutableRecord(row: $0, spec: spec)
             }
         }
+    }
+
+    func mutablePartitionKeys(table: PushMutableTable, deviceId: String) async throws -> [String] {
+        guard table == .eventLabel, let eventPushSource else { return [] }
+        return await eventPushSource.eventDayKeys(deviceId: deviceId)
     }
 
     func binaryRecordAt(table: PushBinaryTable, deviceId: String, rowId: Int64) async throws -> PushBinaryRow? {
@@ -451,6 +488,8 @@ struct CloudPushSnapshot: PushSnapshotSource {
                 dataColumns: ["answeredYes", "notes", "numericValue"],
                 booleanColumns: ["answeredYes"]
             )
+        case .eventLabel:
+            preconditionFailure("event labels are file-backed")
         }
     }
 
@@ -472,7 +511,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
         var columns: [String] { keyColumns + dataColumns }
     }
 
-    private func appendSpec(_ table: PushAppendTable) -> TableSpec {
+    private static func appendSpec(_ table: PushAppendTable) -> TableSpec {
         switch table {
         case .hrSample: return TableSpec(sqlName: "hrSample", keyColumns: ["ts"], dataColumns: ["bpm"], booleanColumns: [])
         case .rrInterval: return TableSpec(sqlName: "rrInterval", keyColumns: ["ts", "rrMs", "seq"], dataColumns: ["ord", "srcChannel", "tsSuspect"], booleanColumns: ["tsSuspect"])
@@ -496,13 +535,17 @@ struct CloudPushSnapshot: PushSnapshotSource {
         }
     }
 
-    private func sqlTable(_ table: PushAppendTable) -> String { appendSpec(table).sqlName }
+    private func sqlTable(_ table: PushAppendTable) -> String { Self.appendSpec(table).sqlName }
+
+    /// Table name for one append stream; identifiers come from the closed NoopPush enum.
+    static func appendSQLName(_ table: PushAppendTable) -> String { appendSpec(table).sqlName }
     private func sqlTable(_ table: PushMutableTable) -> String {
         switch table {
         case .dailyMetric: return "dailyMetric"
         case .sleepSession: return "sleepSession"
         case .workout: return "workout"
         case .journal: return "journal"
+        case .eventLabel: preconditionFailure("event labels are file-backed")
         }
     }
 

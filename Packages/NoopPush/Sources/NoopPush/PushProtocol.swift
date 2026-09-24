@@ -74,6 +74,10 @@ public enum PushProtocol {
             ]
         ),
         "journal": (["day", "question"], ["answeredYes", "notes", "numericValue"]),
+        "eventLabel": (
+            ["id", "startTs"],
+            ["label", "endTs", "notes", "timeZoneIdentifier", "source"]
+        ),
     ]
 
     public static func appendBatch(
@@ -164,7 +168,8 @@ public enum PushProtocol {
         sourceId: String,
         deviceId: String,
         window: PushWindow,
-        records: [PushMutableRecord]
+        records: [PushMutableRecord],
+        protocolVersion: String = version
     ) throws -> [PushBatch] {
         try validateUUID(sourceId, name: "sourceId")
         for record in records { try validateRecord(table: table, key: record.key, data: record.data) }
@@ -177,7 +182,7 @@ public enum PushProtocol {
         let replacementIdentity: [String: PushJSONValue] = [
             "deviceId": .string(deviceId),
             "delivery": .string("replace_window"),
-            "protocolVersion": .string(version),
+            "protocolVersion": .string(protocolVersion),
             "sourceId": .string(sourceId),
             "stream": .string(table.wireName),
             "window": .map(try selectorBounds(table: table, window: window)),
@@ -192,7 +197,7 @@ public enum PushProtocol {
             let conservativeHeader = try mutableHeader(
                 sourceId: sourceId, table: table, deviceId: deviceId, window: window,
                 replacementId: replacementId, part: Int.max, parts: Int.max, count: nextCount,
-                batchId: uuidPlaceholder
+                batchId: uuidPlaceholder, protocolVersion: protocolVersion
             )
             if nextCount > PushProtocolLimits.maxRecords
                 || conservativeHeader.count + currentBytes + line.count > PushProtocolLimits.maxBodyBytes {
@@ -206,7 +211,7 @@ public enum PushProtocol {
             let oneHeader = try mutableHeader(
                 sourceId: sourceId, table: table, deviceId: deviceId, window: window,
                 replacementId: replacementId, part: Int.max, parts: Int.max, count: 1,
-                batchId: uuidPlaceholder
+                batchId: uuidPlaceholder, protocolVersion: protocolVersion
             )
             if oneHeader.count + line.count > PushProtocolLimits.maxBodyBytes {
                 throw PushProtocolException("replace_window record exceeds the 4 MiB decoded batch limit")
@@ -221,18 +226,19 @@ public enum PushProtocol {
             let part = index + 1
             let identity = mutableIdentity(
                 sourceId: sourceId, table: table, deviceId: deviceId, window: window,
-                replacementId: replacementId, part: part, parts: parts, count: partLines.count
+                replacementId: replacementId, part: part, parts: parts, count: partLines.count,
+                protocolVersion: protocolVersion
             )
             let batchId = stableUuid(header: identity, lines: partLines)
             let header = try mutableHeader(
                 sourceId: sourceId, table: table, deviceId: deviceId, window: window,
                 replacementId: replacementId, part: part, parts: parts, count: partLines.count,
-                batchId: batchId
+                batchId: batchId, protocolVersion: protocolVersion
             )
             let body = concatenate(header: header, lines: partLines)
             precondition(partLines.count <= PushProtocolLimits.maxRecords && body.count <= PushProtocolLimits.maxBodyBytes)
             return PushBatch(
-                protocolVersion: version,
+                protocolVersion: protocolVersion,
                 batchId: batchId,
                 sourceId: sourceId,
                 table: table,
@@ -255,9 +261,17 @@ public enum PushProtocol {
         sourceId: String,
         deviceId: String,
         window: PushWindow,
-        records: [PushMutableRecord]
+        records: [PushMutableRecord],
+        protocolVersion: String = version
     ) throws -> PushBatch {
-        let batches = try mutableBatches(table: table, sourceId: sourceId, deviceId: deviceId, window: window, records: records)
+        let batches = try mutableBatches(
+            table: table,
+            sourceId: sourceId,
+            deviceId: deviceId,
+            window: window,
+            records: records,
+            protocolVersion: protocolVersion
+        )
         guard batches.count == 1, let batch = batches.first else {
             throw PushProtocolException("replace_window requires multiple parts")
         }
@@ -651,7 +665,7 @@ public enum PushProtocol {
 
     private static func mutableIdentity(
         sourceId: String, table: PushMutableTable, deviceId: String, window: PushWindow,
-        replacementId: String, part: Int, parts: Int, count: Int
+        replacementId: String, part: Int, parts: Int, count: Int, protocolVersion: String
     ) -> [String: PushJSONValue] {
         var windowBounds = (try? selectorBounds(table: table, window: window)) ?? [:]
         windowBounds["part"] = .int(Int64(part))
@@ -661,7 +675,7 @@ public enum PushProtocol {
             "delivery": .string("replace_window"),
             "deviceId": .string(deviceId),
             "endCursor": .null,
-            "protocolVersion": .string(version),
+            "protocolVersion": .string(protocolVersion),
             "recordCount": .int(Int64(count)),
             "sourceId": .string(sourceId),
             "startCursor": .null,
@@ -673,11 +687,13 @@ public enum PushProtocol {
 
     private static func mutableHeader(
         sourceId: String, table: PushMutableTable, deviceId: String, window: PushWindow,
-        replacementId: String, part: Int, parts: Int, count: Int, batchId: String
+        replacementId: String, part: Int, parts: Int, count: Int, batchId: String,
+        protocolVersion: String
     ) throws -> Data {
         var header = mutableIdentity(
             sourceId: sourceId, table: table, deviceId: deviceId, window: window,
-            replacementId: replacementId, part: part, parts: parts, count: count
+            replacementId: replacementId, part: part, parts: parts, count: count,
+            protocolVersion: protocolVersion
         )
         header["batchId"] = .string(batchId)
         return try encodeLine(header)
@@ -694,7 +710,7 @@ public enum PushProtocol {
                 "selector": .string("day"),
                 "startInclusive": .string(window.fromDay),
             ]
-        case .sleepSession, .workout:
+        case .sleepSession, .workout, .eventLabel:
             return [
                 "endExclusive": .int(window.endTsExclusive),
                 "selector": .string("startTs"),

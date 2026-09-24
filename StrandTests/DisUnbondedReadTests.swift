@@ -8,6 +8,23 @@ import XCTest
 /// it is an MG at all. These rules decide when to try, and when to stop trying.
 final class DisUnbondedReadTests: XCTestCase {
 
+    // MARK: - duplicate-row removal safety
+
+    func testRemovingTheActiveRegistryRowCanReleaseTheLiveSource() {
+        XCTAssertTrue(BLEManager.removalTargetsCurrentDevice(removedDeviceId: "whoop-active",
+                                                             currentDeviceId: "whoop-active"))
+    }
+
+    func testRemovingAStaleDuplicateRowCannotReleaseTheLiveSource() {
+        XCTAssertFalse(BLEManager.removalTargetsCurrentDevice(removedDeviceId: "whoop-old",
+                                                              currentDeviceId: "whoop-active"))
+    }
+
+    func testLegacyNilRemovalStillTargetsTheCurrentSource() {
+        XCTAssertTrue(BLEManager.removalTargetsCurrentDevice(removedDeviceId: nil,
+                                                             currentDeviceId: "whoop-active"))
+    }
+
     // MARK: - when to attempt
 
     func testACleanFiveMGAttemptsTheRead() {
@@ -38,6 +55,29 @@ final class DisUnbondedReadTests: XCTestCase {
     func testARefusalIsPermanentForThatStrap() {
         XCTAssertFalse(shouldReadDisUnbonded(isWhoop5: true, bonded: false,
                                              alreadyReadThisLink: false, previouslyRefused: true))
+    }
+
+    // The pre-bond probe is diagnostic and may return only a prefix. It must not
+    // prevent the authenticated read that can provide the full stable serial.
+    func testUnbondedProbeDoesNotConsumeThePostBondIdentityRead() {
+        XCTAssertTrue(shouldReadDisPostBond(isWhoop5: true, bonded: true,
+                                            alreadyReadThisLink: false,
+                                            hasReadableCharacteristic: true))
+    }
+
+    func testPostBondIdentityReadIsOnlyIssuedOnceOnAnAuthenticatedFiveMGLink() {
+        XCTAssertFalse(shouldReadDisPostBond(isWhoop5: true, bonded: false,
+                                             alreadyReadThisLink: false,
+                                             hasReadableCharacteristic: true))
+        XCTAssertFalse(shouldReadDisPostBond(isWhoop5: true, bonded: true,
+                                             alreadyReadThisLink: true,
+                                             hasReadableCharacteristic: true))
+        XCTAssertFalse(shouldReadDisPostBond(isWhoop5: false, bonded: true,
+                                             alreadyReadThisLink: false,
+                                             hasReadableCharacteristic: true))
+        XCTAssertFalse(shouldReadDisPostBond(isWhoop5: true, bonded: true,
+                                             alreadyReadThisLink: false,
+                                             hasReadableCharacteristic: false))
     }
 
     // MARK: - the refusal latch key

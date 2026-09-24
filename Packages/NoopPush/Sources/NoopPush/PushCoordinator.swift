@@ -128,6 +128,9 @@ public struct PushCoordinator: Sendable {
 
     public func pushMutable(_ table: PushMutableTable, deviceId: String) async -> PushResult {
         guard allowsPreparation() else { return pressureDeferred }
+        if table == .eventLabel {
+            return await pushEventLabels(deviceId: deviceId)
+        }
         let fullWindow = PushWindow.ending(today: today(), calendar: calendar)
         let rows: [PushMutableRecord]
         do {
@@ -241,6 +244,122 @@ public struct PushCoordinator: Sendable {
         } catch {
             return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase))
         }
+    }
+
+    /// Event labels are editable long after they began, so the ordinary 14-day horizon is not
+    /// sufficient. UTC-day partitions keep every authoritative replacement bounded while retained
+    /// hashes make edits and deletions converge for the full history.
+    private func pushEventLabels(deviceId: String) async -> PushResult {
+        let currentKeys: Set<String>
+        let prior: PushWindowProgress?
+        do {
+            currentKeys = Set(try await source.mutablePartitionKeys(table: .eventLabel, deviceId: deviceId))
+            prior = try await progress.window(table: .eventLabel, deviceId: deviceId)
+        } catch {
+            return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase))
+        }
+        let priorKeys = Set(prior?.dayHashes.keys.map { $0 } ?? [])
+        let partitionKeys = currentKeys.union(priorKeys).sorted()
+        guard !partitionKeys.isEmpty else { return .noData }
+
+        var currentHashes: [String: String] = [:]
+        var acceptedRecords = 0
+        var acceptedBatches = 0
+        var resultBatchId = prior?.batchId ?? ""
+        var progressWindow = prior?.window
+
+        for key in partitionKeys {
+            guard let window = eventLabelWindow(dayKey: key) else {
+                // Ignore progress sent by the pre-partition event-label implementation; current
+                // UTC day keys will establish bounded progress on this run.
+                continue
+            }
+            let rows: [PushMutableRecord]
+            do {
+                rows = try await source.mutableRows(
+                    table: .eventLabel,
+                    deviceId: deviceId,
+                    window: window,
+                    limit: PushProtocolLimits.maxMutableSnapshotRecords + 1
+                )
+                guard rows.count <= PushProtocolLimits.maxMutableSnapshotRecords else {
+                    throw PushProtocolException("event-label UTC day exceeds the mutable snapshot record limit")
+                }
+                let encodedBytes = try rows.reduce(into: 0) { total, row in
+                    total += try PushProtocol.mutableRecordEncodedSize(table: .eventLabel, record: row)
+                }
+                guard encodedBytes <= PushProtocolLimits.maxMutableSnapshotEncodedBytes else {
+                    throw PushProtocolException("event-label UTC day exceeds the mutable snapshot byte limit")
+                }
+            } catch is PushProtocolException {
+                return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
+            } catch {
+                return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase))
+            }
+
+            let hash: String
+            do {
+                hash = try PushProtocol.mutableSnapshotHash(table: .eventLabel, records: rows)
+            } catch {
+                return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
+            }
+            if currentKeys.contains(key) { currentHashes[key] = hash }
+            guard prior?.dayHashes[key] != hash else { continue }
+
+            let batches: [PushBatch]
+            do {
+                batches = try PushProtocol.mutableBatches(
+                    table: .eventLabel,
+                    sourceId: sourceId,
+                    deviceId: deviceId,
+                    window: window,
+                    records: rows,
+                    protocolVersion: PushProtocol.objectVersion
+                )
+            } catch {
+                return .rejected(reason: PushFailure(code: .localData).safeCode, retryable: false, failure: PushFailure(code: .localData))
+            }
+            for batch in batches {
+                let accepted = await deliver(batch)
+                guard case .accepted = accepted else { return accepted }
+            }
+            resultBatchId = batches.first?.replacementId ?? batches.first?.batchId ?? resultBatchId
+            progressWindow = window
+            acceptedRecords += rows.count
+            acceptedBatches += batches.count
+        }
+
+        guard acceptedBatches > 0, let progressWindow else { return .noData }
+        do {
+            try await progress.saveWindow(
+                table: .eventLabel,
+                deviceId: deviceId,
+                progress: PushWindowProgress(window: progressWindow, batchId: resultBatchId, dayHashes: currentHashes)
+            )
+            return .accepted(
+                batchId: resultBatchId,
+                recordCount: acceptedRecords,
+                hasMore: false,
+                batchCount: acceptedBatches
+            )
+        } catch {
+            return .rejected(reason: PushFailure(code: .localDatabase).safeCode, retryable: true, failure: PushFailure(code: .localDatabase))
+        }
+    }
+
+    private func eventLabelWindow(dayKey: String) -> PushWindow? {
+        let fields = dayKey.split(separator: "-").compactMap { Int($0) }
+        guard fields.count == 3 else { return nil }
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let start = utc.date(from: DateComponents(year: fields[0], month: fields[1], day: fields[2])),
+              let end = utc.date(byAdding: .day, value: 1, to: start) else { return nil }
+        return PushWindow(
+            fromDay: dayKey,
+            toDay: dayKey,
+            startTsInclusive: Int64(start.timeIntervalSince1970),
+            endTsExclusive: Int64(end.timeIntervalSince1970)
+        )
     }
 
     public func pushBinary(_ table: PushBinaryTable, deviceId: String) async -> PushResult {
@@ -835,7 +954,7 @@ public struct PushCoordinator: Sendable {
                 throw PushProtocolException("mutable day key is invalid")
             }
             return day
-        case .sleepSession, .workout:
+        case .sleepSession, .workout, .eventLabel:
             guard let timestamp = record.key["startTs"]?.int64Value else {
                 throw PushProtocolException("mutable startTs key is not an integer")
             }

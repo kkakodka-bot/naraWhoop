@@ -543,6 +543,7 @@ enum DemoScreens {
         // to have diverged from. Without this, the default Today was the one screen the harness could not
         // capture.
         case "liquidtoday": return AnyView(LiquidTodayView())
+        case "eventrecorder": return AnyView(ExperimentEventRecorder())
         case "trends":   return AnyView(TrendsView())
         case "sleep":    return AnyView(SleepView())
         case "live":     return AnyView(LiveView())

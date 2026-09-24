@@ -190,14 +190,22 @@ struct ComingSoon: View {
 /// percent (total pending is unknowable from the protocol, so a determinate bar would lie).
 struct SyncingHistoryNote: View {
     let chunks: Int
+    @ObservedObject private var uploads = CloudUploadProgressCenter.shared
 
     var body: some View {
-        HStack(spacing: 10) {
-            StatePill("Syncing strap history…", tone: .accent, pulsing: true)
-            if chunks > 0 {
-                Text("\(chunks) chunks pulled")
-                    .font(StrandFont.footnote)
-                    .foregroundStyle(StrandPalette.textSecondary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                StatePill("Syncing strap history…", tone: .accent, pulsing: true)
+                if chunks > 0 {
+                    Text("\(chunks) chunks pulled")
+                        .font(StrandFont.footnote)
+                        .foregroundStyle(StrandPalette.textSecondary)
+                }
+            }
+            // Cloud upload trails the strap: it runs in the gaps between history bursts. Show it here,
+            // beside the chunk count, so "syncing" never reads as "everything is done".
+            if uploads.current.isActive {
+                CloudUploadStatusLine(progress: uploads.current, compact: true)
             }
         }
     }
