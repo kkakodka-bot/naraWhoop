@@ -221,6 +221,12 @@ enum CloudPushWorker {
             let refreshed = try CloudPushProgressStore(namespace: namespace, directory: runtime.progressDirectory,
                 auxiliaryIdentityV2: capabilities.protocolVersion == PushProtocol.auxiliaryIdentityVersion)
             coordinator = makeCoordinator(refreshed, capabilities.protocolVersion)
+            let backlog = CloudUploadBacklogReader(db: db, progress: refreshed, snapshot: capturedSnapshot,
+                                                   capabilities: capabilities)
+            CloudUploadProgressCenter.shared.install {
+                try admission.check()
+                return try await backlog.measure()
+            }
         } catch is CancellationError { traceOutcome = .cancelled; return .deferred }
         catch { traceOutcome = .failed; return .deferred }
         let run = await coordinator.pushKnownDevices(

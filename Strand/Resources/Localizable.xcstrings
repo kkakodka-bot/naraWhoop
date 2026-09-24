@@ -1,6 +1,188 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Uploading to cloud…": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Upload in die Cloud…" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Uploading to cloud…" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Subiendo a la nube…" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Envoi vers le cloud…" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "A enviar para a nuvem…" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Caricamento nel cloud…" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wysyłanie do chmury…" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Загрузка в облако…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "正在上传到云端…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "正在上傳到雲端…" } }
+      }
+    },
+    "Cloud upload paused, will retry": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Upload pausiert, wird wiederholt" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud upload paused, will retry" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Subida a la nube en pausa, se reintentará" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Envoi cloud en pause, nouvelle tentative à venir" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Envio para a nuvem em pausa, será repetido" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Caricamento cloud in pausa, verrà ritentato" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wysyłanie do chmury wstrzymane, ponowna próba wkrótce" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Загрузка в облако приостановлена, будет повторена" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云端上传已暂停，将重试" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端上傳已暫停，將重試" } }
+      }
+    },
+    "Cloud upload queued": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Upload in Warteschlange" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud upload queued" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Subida a la nube en cola" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Envoi cloud en attente" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Envio para a nuvem em fila" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Caricamento cloud in coda" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wysyłanie do chmury w kolejce" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Загрузка в облако в очереди" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云端上传已排队" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端上傳已排隊" } }
+      }
+    },
+    "Cloud upload complete": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Upload abgeschlossen" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud upload complete" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Subida a la nube completada" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Envoi cloud terminé" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Envio para a nuvem concluído" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Caricamento cloud completato" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wysyłanie do chmury zakończone" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Загрузка в облако завершена" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云端上传完成" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端上傳完成" } }
+      }
+    },
+    "Cloud upload needs attention": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Upload braucht Aufmerksamkeit" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud upload needs attention" } },
+        "es": { "stringUnit": { "state": "translated", "value": "La subida a la nube requiere atención" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "L'envoi cloud requiert votre attention" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "O envio para a nuvem precisa de atenção" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Il caricamento cloud richiede attenzione" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wysyłanie do chmury wymaga uwagi" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Загрузка в облако требует внимания" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云端上传需要处理" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端上傳需要處理" } }
+      }
+    },
+    "Cloud upload idle": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Upload inaktiv" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud upload idle" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Subida a la nube inactiva" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Envoi cloud inactif" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Envio para a nuvem inativo" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Caricamento cloud inattivo" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wysyłanie do chmury bezczynne" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Загрузка в облако неактивна" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云端上传空闲" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端上傳閒置" } }
+      }
+    },
+    "Cloud upload": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Cloud-Upload" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud upload" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Subida a la nube" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Envoi cloud" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Envio para a nuvem" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Caricamento cloud" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wysyłanie do chmury" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Загрузка в облако" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "云端上传" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "雲端上傳" } }
+      }
+    },
+    "%lld rows left": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "%lld Zeilen übrig" } },
+        "en": { "stringUnit": { "state": "translated", "value": "%lld rows left" } },
+        "es": { "stringUnit": { "state": "translated", "value": "%lld filas restantes" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "%lld lignes restantes" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "%lld linhas restantes" } },
+        "it": { "stringUnit": { "state": "translated", "value": "%lld righe rimanenti" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pozostało wierszy: %lld" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Осталось строк: %lld" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "剩余 %lld 行" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "剩餘 %lld 行" } }
+      }
+    },
+    "Last pass completed %@": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Letzter Durchlauf abgeschlossen %@" } },
+        "en": { "stringUnit": { "state": "translated", "value": "Last pass completed %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Última pasada completada %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Dernière passe terminée %@" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Última passagem concluída %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Ultimo passaggio completato %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Ostatni przebieg ukończony %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Последний проход завершён %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "上次完成于 %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "上次完成於 %@" } }
+      }
+    },
+    "%lld of %lld rows uploaded · counted %@": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "%lld von %lld Zeilen hochgeladen · gezählt %@" } },
+        "en": { "stringUnit": { "state": "translated", "value": "%lld of %lld rows uploaded · counted %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "%lld de %lld filas subidas · contadas %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "%lld lignes sur %lld envoyées · comptées %@" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "%lld de %lld linhas enviadas · contadas %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "%lld righe su %lld caricate · contate %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wysłano %lld z %lld wierszy · policzono %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Загружено %lld из %lld строк · подсчитано %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已上传 %lld / %lld 行 · 统计于 %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已上傳 %lld / %lld 行 · 統計於 %@" } }
+      }
+    },
+    "Backlog not counted yet. It is measured when the next upload pass starts.": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Rückstand noch nicht gezählt. Er wird beim Start des nächsten Upload-Durchlaufs gemessen." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Backlog not counted yet. It is measured when the next upload pass starts." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Pendientes aún no contados. Se miden cuando empieza la siguiente pasada de subida." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Retard pas encore compté. Il est mesuré au début de la prochaine passe d'envoi." } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Pendentes ainda não contados. São medidos quando a próxima passagem de envio começa." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Arretrato non ancora contato. Viene misurato all'avvio del prossimo passaggio di caricamento." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zaległości jeszcze nie policzone. Są mierzone przy starcie następnego przebiegu wysyłania." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Очередь ещё не подсчитана. Она измеряется при запуске следующего прохода загрузки." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "尚未统计待上传数据。将在下次上传开始时测量。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "尚未統計待上傳資料。將在下次上傳開始時測量。" } }
+      }
+    },
+    "%lld rows in %lld batches accepted this pass": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "%lld Zeilen in %lld Batches in diesem Durchlauf akzeptiert" } },
+        "en": { "stringUnit": { "state": "translated", "value": "%lld rows in %lld batches accepted this pass" } },
+        "es": { "stringUnit": { "state": "translated", "value": "%lld filas en %lld lotes aceptadas en esta pasada" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "%lld lignes dans %lld lots acceptées lors de cette passe" } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "%lld linhas em %lld lotes aceites nesta passagem" } },
+        "it": { "stringUnit": { "state": "translated", "value": "%lld righe in %lld batch accettate in questo passaggio" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "W tym przebiegu przyjęto %lld wierszy w %lld partiach" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "В этом проходе принято %lld строк в %lld пакетах" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "本次已接受 %lld 行（%lld 批）" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "本次已接受 %lld 行（%lld 批）" } }
+      }
+    },
+    "Rows still on this phone across the streams the receiver accepts, per paired strap. Re-counted every 5 s while a pass is active. Raw batches count until the server acknowledges them.": {
+      "localizations": {
+        "de": { "stringUnit": { "state": "translated", "value": "Zeilen, die noch auf diesem Telefon liegen, über alle vom Empfänger akzeptierten Streams, pro gekoppeltem Strap. Wird alle 5 s neu gezählt, solange ein Durchlauf aktiv ist. Rohdaten-Batches zählen, bis der Server sie bestätigt." } },
+        "en": { "stringUnit": { "state": "translated", "value": "Rows still on this phone across the streams the receiver accepts, per paired strap. Re-counted every 5 s while a pass is active. Raw batches count until the server acknowledges them." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Filas que siguen en este teléfono en los flujos que acepta el receptor, por pulsera emparejada. Se recuentan cada 5 s mientras hay una pasada activa. Los lotes sin procesar cuentan hasta que el servidor los confirma." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Lignes encore sur ce téléphone pour les flux acceptés par le récepteur, par bracelet appairé. Recomptées toutes les 5 s pendant une passe active. Les lots bruts comptent jusqu'à confirmation par le serveur." } },
+        "pt-PT": { "stringUnit": { "state": "translated", "value": "Linhas ainda neste telemóvel nos fluxos que o recetor aceita, por pulseira emparelhada. Recontadas a cada 5 s enquanto uma passagem está ativa. Os lotes em bruto contam até o servidor os confirmar." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Righe ancora su questo telefono nei flussi accettati dal ricevitore, per ogni fascia abbinata. Ricontate ogni 5 s mentre un passaggio è attivo. I batch grezzi contano finché il server non li conferma." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wiersze wciąż na tym telefonie w strumieniach akceptowanych przez odbiornik, dla każdej sparowanej opaski. Przeliczane co 5 s podczas aktywnego przebiegu. Surowe partie liczą się do potwierdzenia przez serwer." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Строки, ещё оставшиеся на этом телефоне, по потокам, которые принимает приёмник, для каждого сопряжённого браслета. Пересчитываются каждые 5 с во время активного прохода. Сырые пакеты учитываются, пока сервер их не подтвердит." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "接收端接受的各数据流中仍留在本机的行数，按已配对腕带统计。上传进行中每 5 秒重新统计。原始批次在服务器确认前一直计入。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "接收端接受的各資料流中仍留在本機的行數，依已配對腕帶統計。上傳進行中每 5 秒重新統計。原始批次在伺服器確認前一直計入。" } }
+      }
+    },
     "Local and imported history. Open HRV or respiratory rate for the selected server result." : {
       "localizations": {
         "de": {

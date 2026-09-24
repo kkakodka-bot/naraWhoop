@@ -7,6 +7,7 @@ struct LiveBluetoothDiagnosticCard: View {
     @EnvironmentObject private var live: LiveState
     // Preserve visibility for the current installation; an explicit Off persists across launches.
     @AppStorage(LiveBluetoothDiagnostics.visibilityKey) private var isVisible = true
+    @ObservedObject private var uploads = CloudUploadProgressCenter.shared
     @State private var showIMU3D = false
 
     var body: some View {
@@ -72,9 +73,46 @@ struct LiveBluetoothDiagnosticCard: View {
                     .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
                 Divider()
                 trafficSummary(at: context.date)
+                Divider()
+                cloudUploadSummary(at: context.date)
                 }
             }
             .accessibilityIdentifier("liveBluetoothDiagnostic")
+            .onAppear { uploads.refresh(minimumInterval: 30, now: context.date) }
+            .onChangeCompat(of: Int(context.date.timeIntervalSince1970) / 5) { _ in
+                // The card already ticks once a second; re-count the backlog every fifth tick while a
+                // pass is active. Idle cards keep the last measurement instead of hammering SQLite.
+                if uploads.current.isActive { uploads.refresh(minimumInterval: 4, now: context.date) }
+            }
+        }
+    }
+
+    private func cloudUploadSummary(at now: Date) -> some View {
+        let progress = uploads.current
+        return VStack(alignment: .leading, spacing: NoopMetrics.space1) {
+            HStack {
+                Text("Cloud upload").font(StrandFont.captionNumber)
+                Spacer()
+                if let at = progress.lastSuccessAt {
+                    Text("Last pass completed \(relativeAgo(at.timeIntervalSince1970, now: now.timeIntervalSince1970))")
+                        .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+                }
+            }
+            CloudUploadStatusLine(progress: progress)
+            if let backlog = progress.backlog {
+                Text("\(backlog.uploadedRows) of \(backlog.totalRows) rows uploaded · counted \(relativeAgo(backlog.measuredAt.timeIntervalSince1970, now: now.timeIntervalSince1970))")
+                    .font(StrandFont.captionNumber).foregroundStyle(StrandPalette.textSecondary)
+            } else {
+                Text("Backlog not counted yet. It is measured when the next upload pass starts.")
+                    .font(StrandFont.caption).foregroundStyle(StrandPalette.textSecondary)
+            }
+            Text("\(progress.acceptedRecords) rows in \(progress.acceptedBatches) batches accepted this pass")
+                .font(StrandFont.captionNumber)
+            if let error = progress.lastError {
+                Text(error).font(StrandFont.caption).foregroundStyle(StrandPalette.statusWarning)
+            }
+            Text("Rows still on this phone across the streams the receiver accepts, per paired strap. Re-counted every 5 s while a pass is active. Raw batches count until the server acknowledges them.")
+                .font(StrandFont.footnote).foregroundStyle(StrandPalette.textSecondary)
         }
     }
 

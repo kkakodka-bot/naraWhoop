@@ -55,7 +55,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
 
     func appendRecordAt(table: PushAppendTable, deviceId: String, rowId: Int64) async throws -> PushAppendRecord? {
         try await db.read { db in
-            let spec = appendSpec(table)
+            let spec = Self.appendSpec(table)
             let sql = """
                 SELECT rowid AS _pushRowId, \(table.isScalarExtension ? "*" : spec.columns.joined(separator: ", "))
                 FROM \(spec.sqlName)
@@ -75,7 +75,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
     ) async throws -> [PushAppendRecord] {
         precondition(limit >= 1 && limit <= PushProtocolLimits.maxRecords + 1)
         return try await db.read { db in
-            let spec = appendSpec(table)
+            let spec = Self.appendSpec(table)
             let sql = """
                 SELECT rowid AS _pushRowId, \(table.isScalarExtension ? "*" : spec.columns.joined(separator: ", "))
                 FROM \(spec.sqlName)
@@ -511,7 +511,7 @@ struct CloudPushSnapshot: PushSnapshotSource {
         var columns: [String] { keyColumns + dataColumns }
     }
 
-    private func appendSpec(_ table: PushAppendTable) -> TableSpec {
+    private static func appendSpec(_ table: PushAppendTable) -> TableSpec {
         switch table {
         case .hrSample: return TableSpec(sqlName: "hrSample", keyColumns: ["ts"], dataColumns: ["bpm"], booleanColumns: [])
         case .rrInterval: return TableSpec(sqlName: "rrInterval", keyColumns: ["ts", "rrMs", "seq"], dataColumns: ["ord", "srcChannel", "tsSuspect"], booleanColumns: ["tsSuspect"])
@@ -535,7 +535,10 @@ struct CloudPushSnapshot: PushSnapshotSource {
         }
     }
 
-    private func sqlTable(_ table: PushAppendTable) -> String { appendSpec(table).sqlName }
+    private func sqlTable(_ table: PushAppendTable) -> String { Self.appendSpec(table).sqlName }
+
+    /// Table name for one append stream; identifiers come from the closed NoopPush enum.
+    static func appendSQLName(_ table: PushAppendTable) -> String { appendSpec(table).sqlName }
     private func sqlTable(_ table: PushMutableTable) -> String {
         switch table {
         case .dailyMetric: return "dailyMetric"
